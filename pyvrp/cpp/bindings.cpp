@@ -42,71 +42,6 @@ using pyvrp::Trip;
 using PiecewiseLinearFunction
     = pyvrp::PiecewiseLinearFunction<pyvrp::Duration, pyvrp::Cost>;
 
-namespace
-{
-PiecewiseLinearFunction fromLinearDurationCost(pyvrp::Duration shiftDuration,
-                                               pyvrp::Cost unitDurationCost,
-                                               pyvrp::Cost unitOvertimeCost)
-{
-    auto checkedAdd = [](pyvrp::Cost lhs, pyvrp::Cost rhs, char const *msg)
-    {
-        auto const value
-            = static_cast<__int128>(lhs) + static_cast<__int128>(rhs);
-        if (value > std::numeric_limits<pyvrp::Cost>::max()
-            || value < std::numeric_limits<pyvrp::Cost>::min())
-        {
-            throw std::overflow_error(msg);
-        }
-
-        return static_cast<pyvrp::Cost>(value);
-    };
-
-    auto checkedMul = [](pyvrp::Cost lhs, pyvrp::Duration rhs, char const *msg)
-    {
-        auto const value
-            = static_cast<__int128>(lhs) * static_cast<__int128>(rhs);
-        if (value > std::numeric_limits<pyvrp::Cost>::max()
-            || value < std::numeric_limits<pyvrp::Cost>::min())
-        {
-            throw std::overflow_error(msg);
-        }
-
-        return static_cast<pyvrp::Cost>(value);
-    };
-
-    auto const overtimeSlope
-        = checkedAdd(unitDurationCost,
-                     unitOvertimeCost,
-                     "unit_duration_cost + unit_overtime_cost overflows.");
-
-    std::vector<pyvrp::Duration> breakpoints = {
-        0,
-        std::numeric_limits<pyvrp::Duration>::max(),
-    };
-    std::vector<PiecewiseLinearFunction::Segment> segments = {
-        {0, unitDurationCost},
-    };
-
-    if (shiftDuration <= 0)
-    {
-        segments[0].second = overtimeSlope;
-        return {std::move(breakpoints), std::move(segments)};
-    }
-
-    if (shiftDuration < std::numeric_limits<pyvrp::Duration>::max())
-    {
-        breakpoints.insert(breakpoints.begin() + 1, shiftDuration);
-        segments.emplace_back(
-            checkedMul(unitDurationCost,
-                       shiftDuration,
-                       "shift_duration * unit_duration_cost overflows."),
-            overtimeSlope);
-    }
-
-    return {std::move(breakpoints), std::move(segments)};
-}
-}  // namespace
-
 PYBIND11_MODULE(_pyvrp, m)
 {
     py::class_<DynamicBitset>(m, "DynamicBitset", DOC(pyvrp, DynamicBitset))
@@ -379,15 +314,13 @@ PYBIND11_MODULE(_pyvrp, m)
                       pyvrp::Duration,
                       pyvrp::Distance,
                       pyvrp::Cost,
-                      pyvrp::Cost,
                       size_t,
                       std::optional<pyvrp::Duration>,
                       std::vector<pyvrp::Load>,
                       std::vector<size_t>,
                       size_t,
                       pyvrp::Duration,
-                      pyvrp::Cost,
-                      std::optional<PiecewiseLinearFunction>,
+                      PiecewiseLinearFunction,
                       char const *>(),
              py::arg("num_available") = 1,
              py::arg("capacity") = py::list(),
@@ -401,15 +334,13 @@ PYBIND11_MODULE(_pyvrp, m)
              py::arg("max_distance")
              = std::numeric_limits<pyvrp::Distance>::max(),
              py::arg("unit_distance_cost") = 1,
-             py::arg("unit_duration_cost") = 0,
              py::arg("profile") = 0,
              py::arg("start_late") = py::none(),
              py::arg("initial_load") = py::list(),
              py::arg("reload_depots") = py::list(),
              py::arg("max_reloads") = std::numeric_limits<size_t>::max(),
              py::arg("max_overtime") = 0,
-             py::arg("unit_overtime_cost") = 0,
-             py::arg("duration_cost_function") = py::none(),
+             py::arg("duration_cost_function") = PiecewiseLinearFunction(),
              py::kw_only(),
              py::arg("name") = "")
         .def_readonly("num_available", &ProblemData::VehicleType::numAvailable)
@@ -426,8 +357,6 @@ PYBIND11_MODULE(_pyvrp, m)
         .def_readonly("max_distance", &ProblemData::VehicleType::maxDistance)
         .def_readonly("unit_distance_cost",
                       &ProblemData::VehicleType::unitDistanceCost)
-        .def_readonly("unit_duration_cost",
-                      &ProblemData::VehicleType::unitDurationCost)
         .def_readonly("profile", &ProblemData::VehicleType::profile)
         .def_readonly("start_late", &ProblemData::VehicleType::startLate)
         .def_readonly("initial_load",
@@ -438,8 +367,6 @@ PYBIND11_MODULE(_pyvrp, m)
                       py::return_value_policy::reference_internal)
         .def_readonly("max_reloads", &ProblemData::VehicleType::maxReloads)
         .def_readonly("max_overtime", &ProblemData::VehicleType::maxOvertime)
-        .def_readonly("unit_overtime_cost",
-                      &ProblemData::VehicleType::unitOvertimeCost)
         .def_readonly("duration_cost_function",
                       &ProblemData::VehicleType::durationCostFunction)
         .def_property_readonly("duration_cost_slope",
@@ -462,29 +389,15 @@ PYBIND11_MODULE(_pyvrp, m)
                std::optional<pyvrp::Duration> shiftDuration,
                std::optional<pyvrp::Distance> maxDistance,
                std::optional<pyvrp::Cost> unitDistanceCost,
-               std::optional<pyvrp::Cost> unitDurationCost,
                std::optional<size_t> profile,
                std::optional<pyvrp::Duration> startLate,
                std::optional<std::vector<pyvrp::Load>> initialLoad,
                std::optional<std::vector<size_t>> reloadDepots,
                std::optional<size_t> maxReloads,
                std::optional<pyvrp::Duration> maxOvertime,
-               std::optional<pyvrp::Cost> unitOvertimeCost,
-               py::object durationCostFunction,
+               std::optional<PiecewiseLinearFunction> durationCostFunction,
                std::optional<std::string> name)
             {
-                auto const durationCostFunctionProvided
-                    = !durationCostFunction.is(py::ellipsis());
-
-                std::optional<PiecewiseLinearFunction> parsedDurationCost
-                    = std::nullopt;
-                if (durationCostFunctionProvided
-                    && !durationCostFunction.is_none())
-                {
-                    parsedDurationCost
-                        = durationCostFunction.cast<PiecewiseLinearFunction>();
-                }
-
                 return vehicleType.replace(numAvailable,
                                            capacity,
                                            startDepot,
@@ -495,17 +408,14 @@ PYBIND11_MODULE(_pyvrp, m)
                                            shiftDuration,
                                            maxDistance,
                                            unitDistanceCost,
-                                           unitDurationCost,
                                            profile,
                                            startLate,
                                            initialLoad,
                                            reloadDepots,
                                            maxReloads,
                                            maxOvertime,
-                                           unitOvertimeCost,
-                                           parsedDurationCost,
-                                           name,
-                                           durationCostFunctionProvided);
+                                           durationCostFunction,
+                                           name);
             },
             py::arg("num_available") = py::none(),
             py::arg("capacity") = py::none(),
@@ -517,15 +427,13 @@ PYBIND11_MODULE(_pyvrp, m)
             py::arg("shift_duration") = py::none(),
             py::arg("max_distance") = py::none(),
             py::arg("unit_distance_cost") = py::none(),
-            py::arg("unit_duration_cost") = py::none(),
             py::arg("profile") = py::none(),
             py::arg("start_late") = py::none(),
             py::arg("initial_load") = py::none(),
             py::arg("reload_depots") = py::none(),
             py::arg("max_reloads") = py::none(),
             py::arg("max_overtime") = py::none(),
-            py::arg("unit_overtime_cost") = py::none(),
-            py::arg("duration_cost_function") = py::ellipsis(),
+            py::arg("duration_cost_function") = py::none(),
             py::kw_only(),
             py::arg("name") = py::none(),
             DOC(pyvrp, ProblemData, VehicleType, replace))
@@ -542,33 +450,16 @@ PYBIND11_MODULE(_pyvrp, m)
                                       vehicleType.shiftDuration,
                                       vehicleType.maxDistance,
                                       vehicleType.unitDistanceCost,
-                                      vehicleType.unitDurationCost,
                                       vehicleType.profile,
                                       vehicleType.startLate,
                                       vehicleType.initialLoad,
                                       vehicleType.reloadDepots,
                                       vehicleType.maxReloads,
                                       vehicleType.maxOvertime,
-                                      vehicleType.unitOvertimeCost,
                                       vehicleType.durationCostFunction,
                                       vehicleType.name);
             },
             [](py::tuple t) {  // __setstate__
-                auto const shiftDuration = t[7].cast<pyvrp::Duration>();
-                auto const unitDurationCost = t[10].cast<pyvrp::Cost>();
-                auto const unitOvertimeCost = t[17].cast<pyvrp::Cost>();
-                auto const durationCostFunction
-                    = t[18].cast<PiecewiseLinearFunction>();
-
-                auto const legacyDurationCost = fromLinearDurationCost(
-                    shiftDuration, unitDurationCost, unitOvertimeCost);
-
-                auto const maybeDurationCost
-                    = durationCostFunction == legacyDurationCost
-                          ? std::optional<PiecewiseLinearFunction>{}
-                          : std::optional<PiecewiseLinearFunction>{
-                                durationCostFunction};
-
                 ProblemData::VehicleType vehicleType(
                     t[0].cast<size_t>(),                    // num available
                     t[1].cast<std::vector<pyvrp::Load>>(),  // capacity
@@ -577,19 +468,17 @@ PYBIND11_MODULE(_pyvrp, m)
                     t[4].cast<pyvrp::Cost>(),               // fixed cost
                     t[5].cast<pyvrp::Duration>(),           // tw early
                     t[6].cast<pyvrp::Duration>(),           // tw late
-                    shiftDuration,                          // shift duration
+                    t[7].cast<pyvrp::Duration>(),           // shift duration
                     t[8].cast<pyvrp::Distance>(),           // max distance
                     t[9].cast<pyvrp::Cost>(),       // unit distance cost
-                    unitDurationCost,               // unit duration cost
-                    t[11].cast<size_t>(),           // profile
-                    t[12].cast<pyvrp::Duration>(),  // start late
-                    t[13].cast<std::vector<pyvrp::Load>>(),  // initial load
-                    t[14].cast<std::vector<size_t>>(),       // reload depots
-                    t[15].cast<size_t>(),                    // max reloads
-                    t[16].cast<pyvrp::Duration>(),           // max overtime
-                    unitOvertimeCost,                        // unit overtime
-                    maybeDurationCost,                       // duration cost fn
-                    t[19].cast<std::string>());              // name
+                    t[10].cast<size_t>(),           // profile
+                    t[11].cast<pyvrp::Duration>(),  // start late
+                    t[12].cast<std::vector<pyvrp::Load>>(),  // initial load
+                    t[13].cast<std::vector<size_t>>(),       // reload depots
+                    t[14].cast<size_t>(),                    // max reloads
+                    t[15].cast<pyvrp::Duration>(),           // max overtime
+                    t[16].cast<PiecewiseLinearFunction>(),   // duration cost fn
+                    t[17].cast<std::string>());              // name
                 return vehicleType;
             }))
         .def(

@@ -1,12 +1,14 @@
 import pickle
 from itertools import pairwise
 
+import numpy as np
 import pytest
 from numpy.testing import assert_, assert_equal, assert_raises
 
 from pyvrp import (
     Client,
     Depot,
+    PiecewiseLinearFunction,
     ProblemData,
     RandomNumberGenerator,
     Route,
@@ -15,6 +17,8 @@ from pyvrp import (
     VehicleType,
 )
 from tests.helpers import read
+
+_INT_MAX = int(np.iinfo(np.int64).max)
 
 
 def test_route_depot_accessors(ok_small_multi_depot):
@@ -352,8 +356,22 @@ def test_distance_duration_cost_calculations(ok_small):
     Tests route-level distance and duration cost calculations.
     """
     vehicle_types = [
-        VehicleType(capacity=[10], unit_distance_cost=5, unit_duration_cost=1),
-        VehicleType(capacity=[10], unit_distance_cost=1, unit_duration_cost=5),
+        VehicleType(
+            capacity=[10],
+            unit_distance_cost=5,
+            duration_cost_function=PiecewiseLinearFunction(
+                [0, _INT_MAX],
+                [(0, 1)],
+            ),
+        ),
+        VehicleType(
+            capacity=[10],
+            unit_distance_cost=1,
+            duration_cost_function=PiecewiseLinearFunction(
+                [0, _INT_MAX],
+                [(0, 5)],
+            ),
+        ),
     ]
     data = ok_small.replace(vehicle_types=vehicle_types)
 

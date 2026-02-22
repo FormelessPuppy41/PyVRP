@@ -1065,23 +1065,18 @@ def test_has_distance_cost(veh_type: VehicleType, expected: bool):
         (VehicleType(tw_early=5), Depot(0, 0), True),  # constraint (vehicle)
         (VehicleType(tw_late=5), Depot(0, 0), True),  # constraint (vehicle)
         (VehicleType(shift_duration=0), Depot(0, 0), True),  # constraint (veh)
-        (VehicleType(unit_duration_cost=1), Depot(0, 0), True),  # unit cost
-        # Overtime-only legacy cost is inactive with default shift_duration
-        # (int64_max): max(0, d - shift_duration) is always 0.
-        (VehicleType(unit_overtime_cost=1), Depot(0, 0), False),
-        # NOTE: #925/1044-FormPup41:
-        # This case used to expect True ("unit cost + overtime could matter").
-        # Now, it is False because, with default shift_duration=int64_max, the
-        # legacy overtime term never activates for representable durations.
-        # So fromLinearDurationCost() builds a zero duration-cost function here
-        # (unit_duration_cost=0), and has_duration_cost() stays False unless
-        # a duration constraint is active.
-        # Relevant symbols for behavior changes:
-        # - fromLinearDurationCost in pyvrp/cpp/ProblemData.cpp
-        # - ProblemData::VehicleType::maxDuration in pyvrp/cpp/ProblemData.cpp
-        # - Route::hasDurationCost in pyvrp/cpp/search/Route.h
         (
-            VehicleType(unit_overtime_cost=1, max_overtime=1),
+            VehicleType(
+                duration_cost_function=PiecewiseLinearFunction(
+                    [0, _INT_MAX],
+                    [(0, 1)],
+                )
+            ),
+            Depot(0, 0),
+            True,
+        ),  # linear duration cost
+        (
+            VehicleType(max_overtime=1),
             Depot(0, 0),
             False,
         ),
@@ -1096,10 +1091,14 @@ def test_has_distance_cost(veh_type: VehicleType, expected: bool):
             Depot(0, 0),
             True,
         ),  # custom cost
-        # Finite shift duration and non-zero overtime cost can activate
-        # duration cost once the shift threshold is exceeded.
         (
-            VehicleType(shift_duration=5, unit_overtime_cost=1),
+            VehicleType(
+                shift_duration=5,
+                duration_cost_function=PiecewiseLinearFunction(
+                    [0, 5, _INT_MAX],
+                    [(0, 0), (0, 1)],
+                ),
+            ),
             Depot(0, 0),
             True,
         ),
@@ -1135,7 +1134,6 @@ def test_overtime(ok_small_overtime):
     assert_equal(route.shift_duration(), 5_000)
     assert_equal(route.max_overtime(), 1_000)
     assert_equal(route.max_duration(), 6_000)
-    assert_equal(route.unit_overtime_cost(), 10)
 
     # Route cost and feasibility attributes.
     assert_(not route.has_time_warp())

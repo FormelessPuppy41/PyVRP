@@ -456,16 +456,6 @@ public:
     [[nodiscard]] inline Cost durationCost() const;
 
     /**
-     * @return Cost per unit of duration travelled on this route.
-     */
-    [[nodiscard]] inline Cost unitDurationCost() const;
-
-    /**
-     * @return Cost per unit of overtime on this route.
-     */
-    [[nodiscard]] inline Cost unitOvertimeCost() const;
-
-    /**
      * @return Duration cost function used by this route.
      */
     [[nodiscard]] inline ProblemData::VehicleType::DurationCost const &
@@ -945,10 +935,6 @@ Cost Route::durationCost() const
     assert(!dirty);
     return durationCost_;
 }
-
-Cost Route::unitDurationCost() const { return vehicleType_.unitDurationCost; }
-
-Cost Route::unitOvertimeCost() const { return vehicleType_.unitOvertimeCost; }
 
 ProblemData::VehicleType::DurationCost const &
 Route::durationCostFunction() const
