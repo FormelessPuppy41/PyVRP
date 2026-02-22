@@ -3,7 +3,13 @@ import pytest
 from numpy.testing import assert_, assert_equal, assert_raises
 
 import pyvrp
-from pyvrp import Client, Depot, DurationCostFunction, ProblemData, VehicleType
+from pyvrp import (
+    Client,
+    Depot,
+    PiecewiseLinearFunction,
+    ProblemData,
+    VehicleType,
+)
 from pyvrp.search._search import Node, Route
 from tests.helpers import make_search_route
 
@@ -1067,12 +1073,11 @@ def test_has_distance_cost(veh_type: VehicleType, expected: bool):
         # This case used to expect True ("unit cost + overtime could matter").
         # Now, it is False because, with default shift_duration=int64_max, the
         # legacy overtime term never activates for representable durations.
-        # So fromLinear() builds a zero duration-cost function here
+        # So fromLinearDurationCost() builds a zero duration-cost function here
         # (unit_duration_cost=0), and has_duration_cost() stays False unless
         # a duration constraint is active.
         # Relevant symbols for behavior changes:
-        # - DurationCostFunction::fromLinear in
-        #   pyvrp/cpp/DurationCostFunction.cpp
+        # - fromLinearDurationCost in pyvrp/cpp/ProblemData.cpp
         # - ProblemData::VehicleType::maxDuration in pyvrp/cpp/ProblemData.cpp
         # - Route::hasDurationCost in pyvrp/cpp/search/Route.h
         (
@@ -1082,7 +1087,12 @@ def test_has_distance_cost(veh_type: VehicleType, expected: bool):
         ),
         (VehicleType(max_overtime=5), Depot(0, 0), False),  # not constrained
         (
-            VehicleType(duration_cost_function=DurationCostFunction([0], [1])),
+            VehicleType(
+                duration_cost_function=PiecewiseLinearFunction(
+                    [0, _INT_MAX],
+                    [(0, 1)],
+                )
+            ),
             Depot(0, 0),
             True,
         ),  # custom cost

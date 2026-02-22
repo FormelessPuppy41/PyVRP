@@ -468,7 +468,7 @@ public:
     /**
      * @return Duration cost function used by this route.
      */
-    [[nodiscard]] inline DurationCostFunction const &
+    [[nodiscard]] inline ProblemData::VehicleType::DurationCost const &
     durationCostFunction() const;
 
     /**
@@ -950,7 +950,8 @@ Cost Route::unitDurationCost() const { return vehicleType_.unitDurationCost; }
 
 Cost Route::unitOvertimeCost() const { return vehicleType_.unitOvertimeCost; }
 
-DurationCostFunction const &Route::durationCostFunction() const
+ProblemData::VehicleType::DurationCost const &
+Route::durationCostFunction() const
 {
     return vehicleType_.durationCostFunction;
 }

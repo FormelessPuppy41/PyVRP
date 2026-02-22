@@ -146,7 +146,7 @@ class VehicleType:
     max_reloads: int
     max_overtime: int
     unit_overtime_cost: int
-    duration_cost_function: DurationCostFunction
+    duration_cost_function: PiecewiseLinearFunction
     duration_cost_slope: int
     max_duration: int
     name: str
@@ -170,7 +170,7 @@ class VehicleType:
         max_reloads: int = ...,
         max_overtime: int = 0,
         unit_overtime_cost: int = 0,
-        duration_cost_function: DurationCostFunction | None = None,
+        duration_cost_function: PiecewiseLinearFunction | None = None,
         *,
         name: str = "",
     ) -> None: ...
@@ -196,7 +196,7 @@ class VehicleType:
         max_reloads: int | None = None,
         max_overtime: int | None = None,
         unit_overtime_cost: int | None = None,
-        duration_cost_function: DurationCostFunction | None = ...,
+        duration_cost_function: PiecewiseLinearFunction | None = ...,
         *,
         name: str | None = None,
     ) -> VehicleType: ...

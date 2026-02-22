@@ -1,9 +1,9 @@
 #ifndef PYVRP_PROBLEMDATA_H
 #define PYVRP_PROBLEMDATA_H
 
-#include "DurationCostFunction.h"
 #include "Matrix.h"
 #include "Measure.h"
+#include "PiecewiseLinearFunction.h"
 
 #include <cassert>
 #include <iosfwd>
@@ -372,7 +372,7 @@ public:
      *     max_reloads: int = np.iinfo(np.uint64).max,
      *     max_overtime: int = 0,
      *     unit_overtime_cost: int = 0,
-     *     duration_cost_function: DurationCostFunction | None = None,
+     *     duration_cost_function: PiecewiseLinearFunction | None = None,
      *     *,
      *     name: str = "",
      * )
@@ -446,7 +446,7 @@ public:
      *     - omitted: keep the current duration-cost mode;
      *     - ``None``: clear a custom function and switch to legacy
      *       linear/overtime costs;
-     *     - :py:class:`~DurationCostFunction`: set or replace the custom
+     *     - :py:class:`~PiecewiseLinearFunction`: set or replace the custom
      *       function.
      *
      *     A custom duration cost function is mutually exclusive with updating
@@ -514,6 +514,8 @@ public:
      */
     struct VehicleType
     {
+        using DurationCost = PiecewiseLinearFunction<Duration, Cost>;
+
         size_t const numAvailable;         // Available vehicles of this type
         size_t const startDepot;           // Departure depot location
         size_t const endDepot;             // Return depot location
@@ -527,12 +529,12 @@ public:
         Cost const unitDurationCost;  // Variable cost per unit of duration
         size_t const profile;         // Distance and duration profile
         Duration const startLate;     // Latest start of shift
-        std::vector<Load> const initialLoad;     // Initially used capacity
-        std::vector<size_t> const reloadDepots;  // Reload locations
-        size_t const maxReloads;                 // Maximum number of reloads
-        Duration const maxOvertime;              // Maximum allowed overtime
-        Cost const unitOvertimeCost;             // Cost per unit of overtime
-        DurationCostFunction const durationCostFunction;  // Duration cost fn
+        std::vector<Load> const initialLoad;      // Initially used capacity
+        std::vector<size_t> const reloadDepots;   // Reload locations
+        size_t const maxReloads;                  // Maximum number of reloads
+        Duration const maxOvertime;               // Maximum allowed overtime
+        Cost const unitOvertimeCost;              // Cost per unit of overtime
+        DurationCost const durationCostFunction;  // Duration cost fn
         Duration const maxDuration;  // Maximum route duration, incl. overtime
         char const *name;            // Type name (for reference)
 
@@ -555,7 +557,7 @@ public:
                     size_t maxReloads = std::numeric_limits<size_t>::max(),
                     Duration maxOvertime = 0,
                     Cost unitOvertimeCost = 0,
-                    std::optional<DurationCostFunction> durationCostFunction
+                    std::optional<DurationCost> durationCostFunction
                     = std::nullopt,
                     std::string name = "");
 
@@ -577,7 +579,7 @@ public:
          * - Omitted: keep the current duration-cost mode.
          * - ``None``: clear custom duration costs and switch to legacy
          *   linear/overtime costs.
-         * - :py:class:`~DurationCostFunction`: use that custom function.
+         * - :py:class:`~PiecewiseLinearFunction`: use that custom function.
          *
          * Validation rules:
          * - ``duration_cost_function`` cannot be set to a *custom* function
@@ -588,28 +590,27 @@ public:
          *   only be updated when switching to legacy mode
          *   (``duration_cost_function=None``) in the same call.
          */
-        VehicleType
-        replace(std::optional<size_t> numAvailable,
-                std::optional<std::vector<Load>> capacity,
-                std::optional<size_t> startDepot,
-                std::optional<size_t> endDepot,
-                std::optional<Cost> fixedCost,
-                std::optional<Duration> twEarly,
-                std::optional<Duration> twLate,
-                std::optional<Duration> shiftDuration,
-                std::optional<Distance> maxDistance,
-                std::optional<Cost> unitDistanceCost,
-                std::optional<Cost> unitDurationCost,
-                std::optional<size_t> profile,
-                std::optional<Duration> startLate,
-                std::optional<std::vector<Load>> initialLoad,
-                std::optional<std::vector<size_t>> reloadDepots,
-                std::optional<size_t> maxReloads,
-                std::optional<Duration> maxOvertime,
-                std::optional<Cost> unitOvertimeCost,
-                std::optional<DurationCostFunction> durationCostFunction,
-                std::optional<std::string> name,
-                bool durationCostFunctionProvided = false) const;
+        VehicleType replace(std::optional<size_t> numAvailable,
+                            std::optional<std::vector<Load>> capacity,
+                            std::optional<size_t> startDepot,
+                            std::optional<size_t> endDepot,
+                            std::optional<Cost> fixedCost,
+                            std::optional<Duration> twEarly,
+                            std::optional<Duration> twLate,
+                            std::optional<Duration> shiftDuration,
+                            std::optional<Distance> maxDistance,
+                            std::optional<Cost> unitDistanceCost,
+                            std::optional<Cost> unitDurationCost,
+                            std::optional<size_t> profile,
+                            std::optional<Duration> startLate,
+                            std::optional<std::vector<Load>> initialLoad,
+                            std::optional<std::vector<size_t>> reloadDepots,
+                            std::optional<size_t> maxReloads,
+                            std::optional<Duration> maxOvertime,
+                            std::optional<Cost> unitOvertimeCost,
+                            std::optional<DurationCost> durationCostFunction,
+                            std::optional<std::string> name,
+                            bool durationCostFunctionProvided = false) const;
 
         /**
          * Returns the maximum number of trips these vehicle can execute.
@@ -633,11 +634,11 @@ public:
          * provide either a custom duration cost function or legacy unit
          * duration/overtime costs.
          */
-        static DurationCostFunction resolveDurationCostFunction(
+        static DurationCost resolveDurationCost(
             Duration shiftDuration,
             Cost unitDurationCost,
             Cost unitOvertimeCost,
-            std::optional<DurationCostFunction> const &durationCostFunction);
+            std::optional<DurationCost> const &durationCostFunction);
     };
 
 private:

@@ -9,7 +9,7 @@ from pyvrp._pyvrp import (
     Client,
     ClientGroup,
     Depot,
-    DurationCostFunction,
+    PiecewiseLinearFunction,
     ProblemData,
     Solution,
     VehicleType,
@@ -374,7 +374,7 @@ class Model:
         max_reloads: int = np.iinfo(np.uint64).max,
         max_overtime: int = 0,
         unit_overtime_cost: int = 0,
-        duration_cost_function: DurationCostFunction | None = None,
+        duration_cost_function: PiecewiseLinearFunction | None = None,
         *,
         name: str = "",
     ) -> VehicleType:

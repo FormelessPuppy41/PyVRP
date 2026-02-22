@@ -42,6 +42,71 @@ using pyvrp::Trip;
 using PiecewiseLinearFunction
     = pyvrp::PiecewiseLinearFunction<pyvrp::Duration, pyvrp::Cost>;
 
+namespace
+{
+PiecewiseLinearFunction fromLinearDurationCost(pyvrp::Duration shiftDuration,
+                                               pyvrp::Cost unitDurationCost,
+                                               pyvrp::Cost unitOvertimeCost)
+{
+    auto checkedAdd = [](pyvrp::Cost lhs, pyvrp::Cost rhs, char const *msg)
+    {
+        auto const value
+            = static_cast<__int128>(lhs) + static_cast<__int128>(rhs);
+        if (value > std::numeric_limits<pyvrp::Cost>::max()
+            || value < std::numeric_limits<pyvrp::Cost>::min())
+        {
+            throw std::overflow_error(msg);
+        }
+
+        return static_cast<pyvrp::Cost>(value);
+    };
+
+    auto checkedMul = [](pyvrp::Cost lhs, pyvrp::Duration rhs, char const *msg)
+    {
+        auto const value
+            = static_cast<__int128>(lhs) * static_cast<__int128>(rhs);
+        if (value > std::numeric_limits<pyvrp::Cost>::max()
+            || value < std::numeric_limits<pyvrp::Cost>::min())
+        {
+            throw std::overflow_error(msg);
+        }
+
+        return static_cast<pyvrp::Cost>(value);
+    };
+
+    auto const overtimeSlope
+        = checkedAdd(unitDurationCost,
+                     unitOvertimeCost,
+                     "unit_duration_cost + unit_overtime_cost overflows.");
+
+    std::vector<pyvrp::Duration> breakpoints = {
+        0,
+        std::numeric_limits<pyvrp::Duration>::max(),
+    };
+    std::vector<PiecewiseLinearFunction::Segment> segments = {
+        {0, unitDurationCost},
+    };
+
+    if (shiftDuration <= 0)
+    {
+        segments[0].second = overtimeSlope;
+        return {std::move(breakpoints), std::move(segments)};
+    }
+
+    if (shiftDuration < std::numeric_limits<pyvrp::Duration>::max())
+    {
+        breakpoints.insert(breakpoints.begin() + 1, shiftDuration);
+        segments.emplace_back(
+            checkedMul(unitDurationCost,
+                       shiftDuration,
+                       "shift_duration * unit_duration_cost overflows."),
+            overtimeSlope);
+    }
+
+    return {std::move(breakpoints), std::move(segments)};
+}
+}  // namespace
+
 PYBIND11_MODULE(_pyvrp, m)
 {
     py::class_<DynamicBitset>(m, "DynamicBitset", DOC(pyvrp, DynamicBitset))
@@ -322,7 +387,7 @@ PYBIND11_MODULE(_pyvrp, m)
                       size_t,
                       pyvrp::Duration,
                       pyvrp::Cost,
-                      std::optional<DurationCostFunction>,
+                      std::optional<PiecewiseLinearFunction>,
                       char const *>(),
              py::arg("num_available") = 1,
              py::arg("capacity") = py::list(),
@@ -411,13 +476,13 @@ PYBIND11_MODULE(_pyvrp, m)
                 auto const durationCostFunctionProvided
                     = !durationCostFunction.is(py::ellipsis());
 
-                std::optional<DurationCostFunction> parsedDurationCostFunction
+                std::optional<PiecewiseLinearFunction> parsedDurationCost
                     = std::nullopt;
                 if (durationCostFunctionProvided
                     && !durationCostFunction.is_none())
                 {
-                    parsedDurationCostFunction
-                        = durationCostFunction.cast<DurationCostFunction>();
+                    parsedDurationCost
+                        = durationCostFunction.cast<PiecewiseLinearFunction>();
                 }
 
                 return vehicleType.replace(numAvailable,
@@ -438,7 +503,7 @@ PYBIND11_MODULE(_pyvrp, m)
                                            maxReloads,
                                            maxOvertime,
                                            unitOvertimeCost,
-                                           parsedDurationCostFunction,
+                                           parsedDurationCost,
                                            name,
                                            durationCostFunctionProvided);
             },
@@ -493,16 +558,15 @@ PYBIND11_MODULE(_pyvrp, m)
                 auto const unitDurationCost = t[10].cast<pyvrp::Cost>();
                 auto const unitOvertimeCost = t[17].cast<pyvrp::Cost>();
                 auto const durationCostFunction
-                    = t[18].cast<DurationCostFunction>();
+                    = t[18].cast<PiecewiseLinearFunction>();
 
-                auto const legacyDurationCostFunction
-                    = DurationCostFunction::fromLinear(
-                        shiftDuration, unitDurationCost, unitOvertimeCost);
+                auto const legacyDurationCost = fromLinearDurationCost(
+                    shiftDuration, unitDurationCost, unitOvertimeCost);
 
-                auto const maybeDurationCostFunction
-                    = durationCostFunction == legacyDurationCostFunction
-                          ? std::optional<DurationCostFunction>{}
-                          : std::optional<DurationCostFunction>{
+                auto const maybeDurationCost
+                    = durationCostFunction == legacyDurationCost
+                          ? std::optional<PiecewiseLinearFunction>{}
+                          : std::optional<PiecewiseLinearFunction>{
                                 durationCostFunction};
 
                 ProblemData::VehicleType vehicleType(
@@ -524,7 +588,7 @@ PYBIND11_MODULE(_pyvrp, m)
                     t[15].cast<size_t>(),                    // max reloads
                     t[16].cast<pyvrp::Duration>(),           // max overtime
                     unitOvertimeCost,                        // unit overtime
-                    maybeDurationCostFunction,               // duration cost fn
+                    maybeDurationCost,                       // duration cost fn
                     t[19].cast<std::string>());              // name
                 return vehicleType;
             }))
