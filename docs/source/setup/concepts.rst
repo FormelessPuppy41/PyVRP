@@ -45,3 +45,9 @@ The following figure explains this graphically.
 .. figure:: ../assets/images/duration-vehicletype.svg
    :alt: Duration attributes of ``VehicleType`` objects.
    :figwidth: 100%
+
+Besides linear duration and overtime costs, vehicle types can also define a
+custom :attr:`~pyvrp._pyvrp.VehicleType.duration_cost_function` for
+non-linear duration cost modelling (which is preferred).
+
+FIXME: #925/1044 - FormPup41: Should we not also include a figure explaining the PWL function here? It might be a bit abstract to understand how the duration cost function works without a visual aid for some users.
