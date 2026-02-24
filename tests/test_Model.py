@@ -8,6 +8,7 @@ from pyvrp import (
     Depot,
     Model,
     PenaltyParams,
+    PiecewiseLinearFunction,
     Profile,
     SolveParams,
     VehicleType,
@@ -16,6 +17,8 @@ from pyvrp.constants import MAX_VALUE
 from pyvrp.exceptions import ScalingWarning
 from pyvrp.stop import MaxIterations
 from tests.helpers import read_solution
+
+_INT_MAX = int(np.iinfo(np.int64).max)
 
 
 def test_model_data():
@@ -790,8 +793,22 @@ def test_minimise_distance_or_duration(ok_small):
     orig_model = Model.from_data(ok_small)
 
     vehicle_types = [
-        VehicleType(capacity=[10], unit_distance_cost=1, unit_duration_cost=0),
-        VehicleType(capacity=[10], unit_distance_cost=0, unit_duration_cost=1),
+        VehicleType(
+            capacity=[10],
+            unit_distance_cost=1,
+            duration_cost_function=PiecewiseLinearFunction(
+                [0, _INT_MAX],
+                [(0, 0)],
+            ),
+        ),
+        VehicleType(
+            capacity=[10],
+            unit_distance_cost=0,
+            duration_cost_function=PiecewiseLinearFunction(
+                [0, _INT_MAX],
+                [(0, 1)],
+            ),
+        ),
     ]
     data = ok_small.replace(vehicle_types=vehicle_types)
     new_model = Model.from_data(data)
