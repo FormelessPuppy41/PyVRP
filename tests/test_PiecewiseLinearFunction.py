@@ -87,26 +87,37 @@ def test_piecewise_linear_function_raises_unsorted_breakpoints():
         PiecewiseLinearFunction([0, 2, 1], [(1, 1), (2, 2)])
 
 
-def test_vehicle_type_uses_provided_duration_cost_function():
-    duration_fn = PiecewiseLinearFunction(
-        [0, 5, _INT_MAX],
-        [(0, 1), (5, 10)],
+def test_vehicle_type_legacy_duration_cost_mapping():
+    vehicle_type = VehicleType(
+        shift_duration=10,
+        unit_duration_cost=2,
+        unit_overtime_cost=5,
     )
-    vehicle_type = VehicleType(duration_cost_function=duration_fn)
 
-    assert_equal(vehicle_type.duration_cost_function, duration_fn)
-    assert_equal(vehicle_type.duration_cost_slope, 1)
-
-
-def test_vehicle_type_defaults_to_zero_duration_cost_function():
-    vehicle_type = VehicleType()
-
-    assert vehicle_type.duration_cost_function.is_zero()
     assert_equal(
-        vehicle_type.duration_cost_function.breakpoints,
-        [np.iinfo(np.int64).min, _INT_MAX],
+        vehicle_type.duration_cost_function.breakpoints, [0, 10, _INT_MAX]
     )
-    assert_equal(vehicle_type.duration_cost_function.segments, [(0, 0)])
+    assert_equal(
+        vehicle_type.duration_cost_function.segments, [(0, 2), (20, 7)]
+    )
+    assert_equal(vehicle_type.duration_cost_slope, 2)
+    assert_equal(vehicle_type.duration_cost_function(6), 12)
+    assert_equal(vehicle_type.duration_cost_function(10), 20)
+    assert_equal(vehicle_type.duration_cost_function(13), 41)
+
+
+def test_vehicle_type_legacy_duration_cost_mapping_with_zero_shift():
+    vehicle_type = VehicleType(
+        shift_duration=0,
+        unit_duration_cost=2,
+        unit_overtime_cost=5,
+    )
+
+    assert_equal(
+        vehicle_type.duration_cost_function.breakpoints, [0, _INT_MAX]
+    )
+    assert_equal(vehicle_type.duration_cost_function.segments, [(0, 7)])
+    assert_equal(vehicle_type.duration_cost_function(13), 2 * 13 + 5 * 13)
 
 
 def test_route_duration_cost_matches_vehicle_duration_cost_function():
@@ -130,13 +141,46 @@ def test_route_duration_cost_matches_vehicle_duration_cost_function():
     )
 
 
-def test_vehicle_type_replace_updates_duration_cost_function():
-    original = PiecewiseLinearFunction([0, _INT_MAX], [(0, 1)])
-    updated = PiecewiseLinearFunction([0, 5, _INT_MAX], [(0, 1), (5, 10)])
-    vehicle_type = VehicleType(duration_cost_function=original)
+def test_vehicle_type_raises_for_mixed_duration_cost_inputs():
+    custom = PiecewiseLinearFunction([0, _INT_MAX], [(0, 1)])
 
-    replaced = vehicle_type.replace(duration_cost_function=updated)
-    unchanged = vehicle_type.replace()
+    with assert_raises(
+        ValueError,
+        match=(
+            "Provide either duration_cost_function or legacy "
+            "unit_duration_cost/unit_overtime_cost, not both."
+        ),
+    ):
+        VehicleType(
+            shift_duration=5,
+            unit_duration_cost=2,
+            unit_overtime_cost=5,
+            duration_cost_function=custom,
+        )
 
-    assert_equal(replaced.duration_cost_function, updated)
-    assert_equal(unchanged.duration_cost_function, original)
+
+def test_vehicle_type_replace_rejects_legacy_update_for_custom_function():
+    custom = PiecewiseLinearFunction([0, 5, _INT_MAX], [(0, 1), (5, 10)])
+    vehicle_type = VehicleType(shift_duration=5, duration_cost_function=custom)
+
+    with assert_raises(
+        ValueError,
+        match=(
+            "Cannot update unit_duration_cost or unit_overtime_cost "
+            "when using a custom duration_cost_function."
+        ),
+    ):
+        vehicle_type.replace(unit_duration_cost=7)
+
+
+def test_vehicle_type_replace_switches_to_legacy_after_clearing_custom():
+    custom = PiecewiseLinearFunction([0, 5, _INT_MAX], [(0, 1), (5, 10)])
+    vehicle_type = VehicleType(shift_duration=5, duration_cost_function=custom)
+
+    replaced = vehicle_type.replace(
+        duration_cost_function=None,
+        unit_duration_cost=4,
+        unit_overtime_cost=3,
+    )
+
+    assert_equal(replaced.duration_cost_function(8), 4 * 8 + 3 * 3)

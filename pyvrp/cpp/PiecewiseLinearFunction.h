@@ -182,16 +182,8 @@ Codomain PiecewiseLinearFunction<Domain, Codomain>::operator()(Domain x) const
         idx = segments_.size() - 1;
 
     auto const &[intercept, slope] = segments_[idx];
-    auto const interceptRaw = toRaw(intercept);
-    auto const slopeRaw = toRaw(slope);
-
-    // Avoid problematic domain subtraction (e.g., x - min_int64) for constant
-    // segments in the default zero function.
-    if (slopeRaw == 0)
-        return fromRaw<Codomain>(interceptRaw);
-
-    auto const delta = toRaw(x) - toRaw(breakpoints_[idx]);
-    auto const value = interceptRaw + slopeRaw * delta;
+    auto const delta = toRaw(x - breakpoints_[idx]);
+    auto const value = toRaw(intercept) + toRaw(slope) * delta;
     return fromRaw<Codomain>(value);
 }
 
