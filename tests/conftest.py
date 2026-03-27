@@ -1,6 +1,6 @@
 import pytest
 
-from pyvrp import PiecewiseLinearFunction, VehicleType
+from pyvrp import VehicleType
 from tests.helpers import read
 
 
@@ -141,13 +141,12 @@ def ok_small_overtime(ok_small):
     Fixture that returns the OkSmall instance with a duration and overtime
     limit, and duration and overtime costs.
     """
-    # slope=1 for d <= 5_000, slope=11 (=1+10) for d > 5_000
-    duration_cost = PiecewiseLinearFunction([5_000], [(0, 1), (-50_000, 11)])
     veh_type = ok_small.vehicle_type(0).replace(
         shift_duration=5_000,
         max_overtime=1_000,
         unit_distance_cost=0,
-        duration_cost=duration_cost,
+        unit_duration_cost=1,
+        unit_overtime_cost=10,
     )
 
     return ok_small.replace(vehicle_types=[veh_type])

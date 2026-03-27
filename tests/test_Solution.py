@@ -10,7 +10,6 @@ from pyvrp import (
     ClientGroup,
     Depot,
     Location,
-    PiecewiseLinearFunction,
     ProblemData,
     RandomNumberGenerator,
     Route,
@@ -791,16 +790,8 @@ def test_distance_duration_cost_calculations(ok_small):
     Tests solution-level distance and duration cost calculations.
     """
     vehicle_types = [
-        VehicleType(
-            capacity=[10],
-            unit_distance_cost=5,
-            duration_cost=PiecewiseLinearFunction([], [(0, 1)]),
-        ),
-        VehicleType(
-            capacity=[10],
-            unit_distance_cost=1,
-            duration_cost=PiecewiseLinearFunction([], [(0, 5)]),
-        ),
+        VehicleType(capacity=[10], unit_distance_cost=5, unit_duration_cost=1),
+        VehicleType(capacity=[10], unit_distance_cost=1, unit_duration_cost=5),
     ]
     data = ok_small.replace(vehicle_types=vehicle_types)
     routes = [Route(data, [0, 1], 0), Route(data, [2, 3], 1)]

@@ -458,10 +458,14 @@ public:
     [[nodiscard]] inline Cost durationCost() const;
 
     /**
-     * @return The piecewise linear duration cost function for this route.
+     * @return Cost per unit of duration travelled on this route.
      */
-    [[nodiscard]] inline ProblemData::VehicleType::DurationCost const &
-    durationCostFn() const;
+    [[nodiscard]] inline Cost unitDurationCost() const;
+
+    /**
+     * @return Cost per unit of overtime on this route.
+     */
+    [[nodiscard]] inline Cost unitOvertimeCost() const;
 
     /**
      * Returns true if this route has duration-related cost components, either
@@ -969,14 +973,18 @@ Cost Route::durationCost() const
     return durationCost_;
 }
 
-ProblemData::VehicleType::DurationCost const &Route::durationCostFn() const
-{
-    return vehicleType_.durationCost;
-}
+Cost Route::unitDurationCost() const { return vehicleType_.unitDurationCost; }
+
+Cost Route::unitOvertimeCost() const { return vehicleType_.unitOvertimeCost; }
 
 bool Route::hasDurationCost() const
 {
-    return data.hasTimeWindows() || vehicleType_.hasDurationCost;
+    // clang-format off
+    return data.hasTimeWindows()
+        || unitDurationCost() != 0
+        || (unitOvertimeCost() != 0 && maxOvertime() != 0)
+        || maxDuration() != std::numeric_limits<Duration>::max();
+    // clang-format on
 }
 
 Duration Route::shiftDuration() const { return vehicleType_.shiftDuration; }
@@ -1108,7 +1116,9 @@ std::pair<Cost, Duration> Route::Proposal<Segments...>::duration() const
         return std::make_pair(0, 0);
 
     auto const &data = route()->data;
-    auto const &durationCost = route()->durationCostFn();
+    auto const unitDurationCost = route()->unitDurationCost();
+    auto const unitOvertimeCost = route()->unitOvertimeCost();
+    auto const shiftDuration = route()->shiftDuration();
     auto const maxDuration = route()->maxDuration();
     auto const profile = route()->profile();
     auto const &matrix = data.durationMatrix(profile);
@@ -1163,7 +1173,9 @@ std::pair<Cost, Duration> Route::Proposal<Segments...>::duration() const
         merge(merge, std::forward<decltype(args)>(args)...);
 
         auto const duration = ds.duration();
-        auto const cost = durationCost(duration);
+        auto const overtime = std::max<Duration>(duration - shiftDuration, 0);
+        auto const cost = unitDurationCost * static_cast<Cost>(duration)
+                          + unitOvertimeCost * static_cast<Cost>(overtime);
         auto const timeWarp = ds.timeWarp(maxDuration);
         return std::make_pair(cost, timeWarp);
     };

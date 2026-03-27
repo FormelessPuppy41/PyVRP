@@ -51,7 +51,7 @@ namespace pyvrp
 template <typename Dom, typename Co> class PiecewiseLinearFunction
 {
 public:
-    using Segment = std::pair<Co, Co>;
+    using Segment = std::pair<Dom, Dom>;
     using Point = std::pair<Dom, Co>;
 
 private:
@@ -86,13 +86,7 @@ public:
      */
     [[nodiscard]] bool isMonotonicallyIncreasing() const;
 
-    /**
-     * Returns whether this function is non-negative for all :math:`x \ge lb`.
-     */
-    [[nodiscard]] bool isNonNegative(Dom lb) const;
-
     bool operator==(PiecewiseLinearFunction const &other) const = default;
-    auto operator<=>(PiecewiseLinearFunction const &other) const = default;
 };
 
 template <typename Dom, typename Co>
@@ -118,8 +112,8 @@ PiecewiseLinearFunction<Dom, Co>::PiecewiseLinearFunction(
         if (curr.first == next.first)  // nothing to do; we have a jump at this
             continue;                  // point, but not a new segment.
 
-        auto const dy = static_cast<int64_t>(next.second - curr.second);
-        auto const dx = static_cast<int64_t>(next.first - curr.first);
+        auto const dy = next.second - curr.second;
+        auto const dx = next.first - curr.first;
 
         if (dx < 0)
             throw std::invalid_argument("Points must be non-decreasing in x.");
@@ -130,9 +124,8 @@ PiecewiseLinearFunction<Dom, Co>::PiecewiseLinearFunction(
         if (idx != 0)  // breakpoints separate segments
             breakpoints_.push_back(curr.first);
 
-        auto const slope = static_cast<Co>(dy / dx);
-        auto const intercept
-            = curr.second - slope * static_cast<Co>(curr.first);
+        auto const slope = dy / dx;
+        auto const intercept = curr.second - slope * curr.first;
         segments_.emplace_back(intercept, slope);
     }
 
@@ -165,7 +158,7 @@ Co PiecewiseLinearFunction<Dom, Co>::operator()(Dom x) const
         std::upper_bound(breakpoints_.begin(), breakpoints_.end(), x));
 
     auto const [intercept, slope] = segments_[idx];
-    return intercept + slope * static_cast<Co>(x);
+    return static_cast<Co>(intercept + slope * x);
 }
 
 template <typename Dom, typename Co>
@@ -194,49 +187,10 @@ bool PiecewiseLinearFunction<Dom, Co>::isMonotonicallyIncreasing() const
         auto const [prevIntercept, prevSlope] = segments_[idx];
         auto const [nextIntercept, nextSlope] = segments_[idx + 1];
 
-        auto const left
-            = prevIntercept + prevSlope * static_cast<Co>(breakpoint);
-        auto const right
-            = nextIntercept + nextSlope * static_cast<Co>(breakpoint);
+        auto const left = prevIntercept + prevSlope * breakpoint;
+        auto const right = nextIntercept + nextSlope * breakpoint;
 
         if (right < left)
-            return false;
-    }
-
-    return true;
-}
-
-template <typename Dom, typename Co>
-bool PiecewiseLinearFunction<Dom, Co>::isNonNegative(Dom lb) const
-{
-    // The last segment extends to +inf. A negative slope would drive the
-    // function to -inf, violating non-negativity.
-    if (segments_.back().second < 0)
-        return false;
-
-    // Check the value at the lower bound of the domain.
-    if ((*this)(lb) < 0)
-        return false;
-
-    // Check all breakpoints strictly greater than lb. Since each segment is
-    // linear, its minimum over any interval is at one of the endpoints; those
-    // endpoints are lb (already checked) and the breakpoints below.
-    for (size_t idx = 0; idx != breakpoints_.size(); ++idx)
-    {
-        auto const breakpoint = breakpoints_[idx];
-
-        if (breakpoint <= lb)
-            continue;
-
-        auto const [prevIntercept, prevSlope] = segments_[idx];
-        auto const [nextIntercept, nextSlope] = segments_[idx + 1];
-
-        auto const left
-            = prevIntercept + prevSlope * static_cast<Co>(breakpoint);
-        auto const right
-            = nextIntercept + nextSlope * static_cast<Co>(breakpoint);
-
-        if (left < 0 || right < 0)
             return false;
     }
 
