@@ -93,12 +93,12 @@ jobs:
         run: |
           uv run pytest
           uv run ninja coverage-xml -C build
-      - uses: codecov/codecov-action@v5
+      - uses: actions/upload-artifact@v4
         with:
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          plugins: pycoverage
-          files: build/meson-logs/coverage.xml
+          name: coverage-${{ matrix.compiler }}
+          path: |
+            coverage.xml
+            build/meson-logs/coverage.xml
       - if: matrix.compiler == 'gcc'
         name: Install Valgrind
         run: sudo apt-get install -y valgrind
