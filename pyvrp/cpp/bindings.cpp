@@ -36,9 +36,6 @@ using pyvrp::RandomNumberGenerator;
 using pyvrp::Route;
 using pyvrp::Solution;
 
-using PiecewiseLinearFunction
-    = pyvrp::PiecewiseLinearFunction<int64_t, int64_t>;
-
 PYBIND11_MODULE(_pyvrp, m)
 {
     py::options options;
@@ -132,43 +129,47 @@ PYBIND11_MODULE(_pyvrp, m)
                                                          blocks.end());
             }));
 
-    py::class_<PiecewiseLinearFunction>(
+    using DurationCost = ProblemData::VehicleType::DurationCost;
+
+    py::class_<DurationCost>(
         m, "PiecewiseLinearFunction", DOC(pyvrp, PiecewiseLinearFunction))
-        .def(py::init<std::vector<PiecewiseLinearFunction::Point>>(),
-             py::arg("points"))
-        .def(py::init<std::vector<int64_t>,
-                      std::vector<PiecewiseLinearFunction::Segment>>(),
+        .def(py::init<std::vector<DurationCost::Point>>(), py::arg("points"))
+        .def(py::init<std::vector<pyvrp::Duration>,
+                      std::vector<DurationCost::Segment>>(),
              py::arg("breakpoints"),
              py::arg("segments"))
         .def("__call__",
-             &PiecewiseLinearFunction::operator(),
+             &DurationCost::operator(),
              py::arg("x"),
              DOC(pyvrp, PiecewiseLinearFunction, __call__))
         .def_property_readonly("breakpoints",
-                               &PiecewiseLinearFunction::breakpoints,
+                               &DurationCost::breakpoints,
                                py::return_value_policy::reference_internal,
                                DOC(pyvrp, PiecewiseLinearFunction, breakpoints))
         .def_property_readonly("segments",
-                               &PiecewiseLinearFunction::segments,
+                               &DurationCost::segments,
                                py::return_value_policy::reference_internal,
                                DOC(pyvrp, PiecewiseLinearFunction, segments))
         .def("is_monotonically_increasing",
-             &PiecewiseLinearFunction::isMonotonicallyIncreasing,
+             &DurationCost::isMonotonicallyIncreasing,
              DOC(pyvrp, PiecewiseLinearFunction, isMonotonicallyIncreasing))
+        .def("is_non_negative",
+             &DurationCost::isNonNegative,
+             py::arg("lb"),
+             DOC(pyvrp, PiecewiseLinearFunction, isNonNegative))
         .def(py::self == py::self)  // this is __eq__
         .def(py::pickle(
-            [](PiecewiseLinearFunction const &function)  // __getstate__
+            [](DurationCost const &function)  // __getstate__
             {
                 return py::make_tuple(function.breakpoints(),
                                       function.segments());
             },
             [](py::tuple t)  // __setstate__
             {
-                using Breakpoints = std::vector<int64_t>;
-                using Segments = std::vector<PiecewiseLinearFunction::Segment>;
-                return PiecewiseLinearFunction(
-                    t[0].cast<Breakpoints>(),  // breakpoints
-                    t[1].cast<Segments>());    // segments
+                using Breakpoints = std::vector<pyvrp::Duration>;
+                using Segments = std::vector<DurationCost::Segment>;
+                return DurationCost(t[0].cast<Breakpoints>(),  // breakpoints
+                                    t[1].cast<Segments>());    // segments
             }));
 
     py::class_<ProblemData::Location>(
@@ -378,14 +379,13 @@ PYBIND11_MODULE(_pyvrp, m)
                       pyvrp::Duration,
                       pyvrp::Distance,
                       pyvrp::Cost,
-                      pyvrp::Cost,
                       size_t,
                       std::optional<pyvrp::Duration>,
                       std::vector<pyvrp::Load>,
                       std::vector<size_t>,
                       size_t,
                       pyvrp::Duration,
-                      pyvrp::Cost,
+                      DurationCost,
                       char const *>(),
              py::arg("num_available") = 1,
              py::arg("capacity") = py::list(),
@@ -399,14 +399,14 @@ PYBIND11_MODULE(_pyvrp, m)
              py::arg("max_distance")
              = std::numeric_limits<pyvrp::Distance>::max(),
              py::arg("unit_distance_cost") = 1,
-             py::arg("unit_duration_cost") = 0,
              py::arg("profile") = 0,
              py::arg("start_late") = py::none(),
              py::arg("initial_load") = py::list(),
              py::arg("reload_depots") = py::list(),
              py::arg("max_reloads") = std::numeric_limits<size_t>::max(),
              py::arg("max_overtime") = 0,
-             py::arg("unit_overtime_cost") = 0,
+             py::arg("duration_cost") = DurationCost(
+                 {}, {DurationCost::Segment{pyvrp::Cost{0}, pyvrp::Cost{0}}}),
              py::kw_only(),
              py::arg("name") = "")
         .def_readonly("num_available", &ProblemData::VehicleType::numAvailable)
@@ -423,8 +423,6 @@ PYBIND11_MODULE(_pyvrp, m)
         .def_readonly("max_distance", &ProblemData::VehicleType::maxDistance)
         .def_readonly("unit_distance_cost",
                       &ProblemData::VehicleType::unitDistanceCost)
-        .def_readonly("unit_duration_cost",
-                      &ProblemData::VehicleType::unitDurationCost)
         .def_readonly("profile", &ProblemData::VehicleType::profile)
         .def_readonly("start_late", &ProblemData::VehicleType::startLate)
         .def_readonly("initial_load",
@@ -435,8 +433,9 @@ PYBIND11_MODULE(_pyvrp, m)
                       py::return_value_policy::reference_internal)
         .def_readonly("max_reloads", &ProblemData::VehicleType::maxReloads)
         .def_readonly("max_overtime", &ProblemData::VehicleType::maxOvertime)
-        .def_readonly("unit_overtime_cost",
-                      &ProblemData::VehicleType::unitOvertimeCost)
+        .def_readonly("duration_cost",
+                      &ProblemData::VehicleType::durationCost,
+                      py::return_value_policy::reference_internal)
         .def_readonly("max_duration", &ProblemData::VehicleType::maxDuration)
         .def_property_readonly("max_trips", &ProblemData::VehicleType::maxTrips)
         .def_readonly("name",
@@ -454,14 +453,13 @@ PYBIND11_MODULE(_pyvrp, m)
              py::arg("shift_duration") = py::none(),
              py::arg("max_distance") = py::none(),
              py::arg("unit_distance_cost") = py::none(),
-             py::arg("unit_duration_cost") = py::none(),
              py::arg("profile") = py::none(),
              py::arg("start_late") = py::none(),
              py::arg("initial_load") = py::none(),
              py::arg("reload_depots") = py::none(),
              py::arg("max_reloads") = py::none(),
              py::arg("max_overtime") = py::none(),
-             py::arg("unit_overtime_cost") = py::none(),
+             py::arg("duration_cost") = py::none(),
              py::kw_only(),
              py::arg("name") = py::none(),
              DOC(pyvrp, ProblemData, VehicleType, replace))
@@ -478,14 +476,13 @@ PYBIND11_MODULE(_pyvrp, m)
                                       vehicleType.shiftDuration,
                                       vehicleType.maxDistance,
                                       vehicleType.unitDistanceCost,
-                                      vehicleType.unitDurationCost,
                                       vehicleType.profile,
                                       vehicleType.startLate,
                                       vehicleType.initialLoad,
                                       vehicleType.reloadDepots,
                                       vehicleType.maxReloads,
                                       vehicleType.maxOvertime,
-                                      vehicleType.unitOvertimeCost,
+                                      vehicleType.durationCost,
                                       vehicleType.name);
             },
             [](py::tuple t) {  // __setstate__
@@ -500,15 +497,14 @@ PYBIND11_MODULE(_pyvrp, m)
                     t[7].cast<pyvrp::Duration>(),           // shift duration
                     t[8].cast<pyvrp::Distance>(),           // max distance
                     t[9].cast<pyvrp::Cost>(),       // unit distance cost
-                    t[10].cast<pyvrp::Cost>(),      // unit duration cost
-                    t[11].cast<size_t>(),           // profile
-                    t[12].cast<pyvrp::Duration>(),  // start late
-                    t[13].cast<std::vector<pyvrp::Load>>(),  // initial load
-                    t[14].cast<std::vector<size_t>>(),       // reload depots
-                    t[15].cast<size_t>(),                    // max reloads
-                    t[16].cast<pyvrp::Duration>(),           // max overtime
-                    t[17].cast<pyvrp::Cost>(),   // unit overtime cost
-                    t[18].cast<std::string>());  // name
+                    t[10].cast<size_t>(),           // profile
+                    t[11].cast<pyvrp::Duration>(),  // start late
+                    t[12].cast<std::vector<pyvrp::Load>>(),  // initial load
+                    t[13].cast<std::vector<size_t>>(),       // reload depots
+                    t[14].cast<size_t>(),                    // max reloads
+                    t[15].cast<pyvrp::Duration>(),           // max overtime
+                    t[16].cast<DurationCost>(),              // duration cost
+                    t[17].cast<std::string>());              // name
 
                 return vehicleType;
             }))

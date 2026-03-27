@@ -5,10 +5,12 @@
 #include <numeric>
 #include <stdexcept>
 
+using pyvrp::Cost;
 using pyvrp::Distance;
 using pyvrp::Duration;
 using pyvrp::Load;
 using pyvrp::Matrix;
+using pyvrp::PiecewiseLinearFunction;
 using pyvrp::ProblemData;
 
 namespace
@@ -302,14 +304,13 @@ ProblemData::VehicleType::VehicleType(size_t numAvailable,
                                       Duration shiftDuration,
                                       Distance maxDistance,
                                       Cost unitDistanceCost,
-                                      Cost unitDurationCost,
                                       size_t profile,
                                       std::optional<Duration> startLate,
                                       std::vector<Load> initialLoad,
                                       std::vector<size_t> reloadDepots,
                                       size_t maxReloads,
                                       Duration maxOvertime,
-                                      Cost unitOvertimeCost,
+                                      VehicleType::DurationCost durationCost,
                                       std::string name)
     : numAvailable(numAvailable),
       startDepot(startDepot),
@@ -321,14 +322,12 @@ ProblemData::VehicleType::VehicleType(size_t numAvailable,
       maxDistance(maxDistance),
       fixedCost(fixedCost),
       unitDistanceCost(unitDistanceCost),
-      unitDurationCost(unitDurationCost),
       profile(profile),
       startLate(startLate.value_or(twLate)),
       initialLoad(pad(initialLoad, capacity)),
       reloadDepots(reloadDepots),
       maxReloads(maxReloads),
       maxOvertime(maxOvertime),
-      unitOvertimeCost(unitOvertimeCost),
       // We need to check >= 0 here to avoid overflow. If the arguments are
       // negative the validation checks further below will raise, so it doesn't
       // matter what we set as long as we get to those checks.
@@ -337,6 +336,13 @@ ProblemData::VehicleType::VehicleType(size_t numAvailable,
                                                - shiftDuration
                       ? shiftDuration + maxOvertime
                       : std::numeric_limits<Duration>::max()),
+      durationCost(std::move(durationCost)),
+      hasDurationCost(std::any_of(this->durationCost.segments().begin(),
+                                  this->durationCost.segments().end(),
+                                  [](auto const &seg)
+                                  { return seg.first != 0 || seg.second != 0; })
+                      || this->maxDuration
+                             != std::numeric_limits<Duration>::max()),
       name(duplicate(name.data()))
 {
     if (numAvailable == 0)
@@ -366,9 +372,6 @@ ProblemData::VehicleType::VehicleType(size_t numAvailable,
     if (unitDistanceCost < 0)
         throw std::invalid_argument("unit_distance_cost must be >= 0.");
 
-    if (unitDurationCost < 0)
-        throw std::invalid_argument("unit_duration_cost must be >= 0.");
-
     if (std::any_of(initialLoad.begin(), initialLoad.end(), isNegative<Load>))
         throw std::invalid_argument("initial load amounts must be >= 0.");
 
@@ -379,8 +382,8 @@ ProblemData::VehicleType::VehicleType(size_t numAvailable,
     if (maxOvertime < 0)
         throw std::invalid_argument("max_overtime must be >= 0.");
 
-    if (unitOvertimeCost < 0)
-        throw std::invalid_argument("unit_overtime_cost must be >= 0.");
+    if (!this->durationCost.isNonNegative(Duration{0}))
+        throw std::invalid_argument("duration_cost must be non-negative.");
 }
 
 ProblemData::VehicleType::VehicleType(VehicleType const &vehicleType)
@@ -394,15 +397,15 @@ ProblemData::VehicleType::VehicleType(VehicleType const &vehicleType)
       maxDistance(vehicleType.maxDistance),
       fixedCost(vehicleType.fixedCost),
       unitDistanceCost(vehicleType.unitDistanceCost),
-      unitDurationCost(vehicleType.unitDurationCost),
       profile(vehicleType.profile),
       startLate(vehicleType.startLate),
       initialLoad(vehicleType.initialLoad),
       reloadDepots(vehicleType.reloadDepots),
       maxReloads(vehicleType.maxReloads),
       maxOvertime(vehicleType.maxOvertime),
-      unitOvertimeCost(vehicleType.unitOvertimeCost),
       maxDuration(vehicleType.maxDuration),
+      durationCost(vehicleType.durationCost),
+      hasDurationCost(vehicleType.hasDurationCost),
       name(duplicate(vehicleType.name))
 {
 }
@@ -418,15 +421,15 @@ ProblemData::VehicleType::VehicleType(VehicleType &&vehicleType)
       maxDistance(vehicleType.maxDistance),
       fixedCost(vehicleType.fixedCost),
       unitDistanceCost(vehicleType.unitDistanceCost),
-      unitDurationCost(vehicleType.unitDurationCost),
       profile(vehicleType.profile),
       startLate(vehicleType.startLate),
       initialLoad(std::move(vehicleType.initialLoad)),
       reloadDepots(std::move(vehicleType.reloadDepots)),
       maxReloads(vehicleType.maxReloads),
       maxOvertime(vehicleType.maxOvertime),
-      unitOvertimeCost(vehicleType.unitOvertimeCost),
       maxDuration(vehicleType.maxDuration),
+      durationCost(std::move(vehicleType.durationCost)),
+      hasDurationCost(vehicleType.hasDurationCost),
       name(vehicleType.name)  // we can steal
 {
     vehicleType.name = nullptr;  // stolen
@@ -445,14 +448,13 @@ ProblemData::VehicleType ProblemData::VehicleType::replace(
     std::optional<Duration> shiftDuration,
     std::optional<Distance> maxDistance,
     std::optional<Cost> unitDistanceCost,
-    std::optional<Cost> unitDurationCost,
     std::optional<size_t> profile,
     std::optional<Duration> startLate,
     std::optional<std::vector<Load>> initialLoad,
     std::optional<std::vector<size_t>> reloadDepots,
     std::optional<size_t> maxReloads,
     std::optional<Duration> maxOvertime,
-    std::optional<Cost> unitOvertimeCost,
+    std::optional<VehicleType::DurationCost> durationCost,
     std::optional<std::string> name) const
 {
     return {numAvailable.value_or(this->numAvailable),
@@ -465,14 +467,13 @@ ProblemData::VehicleType ProblemData::VehicleType::replace(
             shiftDuration.value_or(this->shiftDuration),
             maxDistance.value_or(this->maxDistance),
             unitDistanceCost.value_or(this->unitDistanceCost),
-            unitDurationCost.value_or(this->unitDurationCost),
             profile.value_or(this->profile),
             startLate.value_or(this->startLate),
             initialLoad.value_or(this->initialLoad),
             reloadDepots.value_or(this->reloadDepots),
             maxReloads.value_or(this->maxReloads),
             maxOvertime.value_or(this->maxOvertime),
-            unitOvertimeCost.value_or(this->unitOvertimeCost),
+            durationCost.value_or(this->durationCost),
             name.value_or(this->name)};
 }
 
@@ -496,14 +497,13 @@ bool ProblemData::VehicleType::operator==(VehicleType const &other) const
         && shiftDuration == other.shiftDuration
         && maxDistance == other.maxDistance
         && unitDistanceCost == other.unitDistanceCost
-        && unitDurationCost == other.unitDurationCost
         && profile == other.profile
         && startLate == other.startLate
         && initialLoad == other.initialLoad
         && reloadDepots == other.reloadDepots
         && maxReloads == other.maxReloads
         && maxOvertime == other.maxOvertime
-        && unitOvertimeCost == other.unitOvertimeCost
+        && durationCost == other.durationCost
         && std::strcmp(name, other.name) == 0;
     // clang-format on
 }

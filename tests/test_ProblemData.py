@@ -10,6 +10,7 @@ from pyvrp import (
     ClientGroup,
     Depot,
     Location,
+    PiecewiseLinearFunction,
     ProblemData,
     VehicleType,
 )
@@ -511,26 +512,24 @@ def test_matrices_are_not_copies():
         "max_distance",
         "fixed_cost",
         "unit_distance_cost",
-        "unit_duration_cost",
         "start_late",
         "initial_load",
     ),
     [
-        (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),  # num_available must be positive
-        (-1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0),  # capacity cannot be negative
-        (-100, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0),  # this is just wrong
-        (0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0),  # early > start late
-        (0, 1, 1, 1, 0, 0, 0, 0, 0, 2, 0),  # start late > late
-        (0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0),  # negative early
-        (0, 1, 0, -1, 0, 0, 0, 0, 0, 0, 0),  # negative late
-        (0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 0),  # negative shift_duration
-        (0, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0),  # negative max_distance
-        (0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0),  # negative fixed_cost
-        (0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0),  # negative unit_distance_cost
-        (0, 1, 0, 0, 0, 0, 0, 0, -1, 0, 0),  # negative unit_duration_cost
-        (0, 1, 0, 0, 0, 0, 0, 0, 0, -1, 0),  # negative start late
-        (0, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1),  # negative initial load
-        (0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2),  # initial load exceeds capacity
+        (0, 0, 0, 0, 0, 0, 0, 0, 0, 0),  # num_available must be positive
+        (-1, 1, 0, 0, 0, 0, 1, 0, 0, 0),  # capacity cannot be negative
+        (-100, 1, 0, 0, 0, 0, 0, 0, 0, 0),  # this is just wrong
+        (0, 1, 1, 1, 0, 0, 0, 0, 0, 0),  # early > start late
+        (0, 1, 1, 1, 0, 0, 0, 0, 2, 0),  # start late > late
+        (0, 1, -1, 0, 0, 0, 0, 0, 0, 0),  # negative early
+        (0, 1, 0, -1, 0, 0, 0, 0, 0, 0),  # negative late
+        (0, 1, 0, 0, -1, 0, 0, 0, 0, 0),  # negative shift_duration
+        (0, 1, 0, 0, 0, -1, 0, 0, 0, 0),  # negative max_distance
+        (0, 1, 0, 0, 0, 0, -1, 0, 0, 0),  # negative fixed_cost
+        (0, 1, 0, 0, 0, 0, 0, -1, 0, 0),  # negative unit_distance_cost
+        (0, 1, 0, 0, 0, 0, 0, 0, -1, 0),  # negative start late
+        (0, 1, 0, 0, 0, 0, 0, 0, 0, -1),  # negative initial load
+        (0, 1, 0, 0, 0, 0, 0, 0, 0, 2),  # initial load exceeds capacity
     ],
 )
 def test_vehicle_type_raises_invalid_data(
@@ -542,7 +541,6 @@ def test_vehicle_type_raises_invalid_data(
     max_distance: int,
     fixed_cost: int,
     unit_distance_cost: int,
-    unit_duration_cost: int,
     start_late: int,
     initial_load: int,
 ):
@@ -560,25 +558,29 @@ def test_vehicle_type_raises_invalid_data(
             shift_duration=shift_duration,
             max_distance=max_distance,
             unit_distance_cost=unit_distance_cost,
-            unit_duration_cost=unit_duration_cost,
             start_late=start_late,
             initial_load=[initial_load],
         )
 
 
-@pytest.mark.parametrize(
-    ("max_overtime", "unit_overtime_cost"),
-    [(-1, 0), (0, -1)],
-)
-def test_vehicle_type_raises_negative_overtime_data(
-    max_overtime: int,
-    unit_overtime_cost: int,
-):
+def test_vehicle_type_raises_negative_max_overtime():
     with assert_raises(ValueError):
-        VehicleType(
-            max_overtime=max_overtime,
-            unit_overtime_cost=unit_overtime_cost,
-        )
+        VehicleType(max_overtime=-1)
+
+
+def test_vehicle_type_raises_negative_duration_cost():
+    with assert_raises(ValueError):
+        VehicleType(duration_cost=PiecewiseLinearFunction([], [(0, -1)]))
+
+
+def test_vehicle_type_raises_non_monotone_duration_cost():
+    """
+    Tests that the vehicle type constructor raises when the duration cost
+    function is not monotonically increasing.
+    """
+    non_monotone = PiecewiseLinearFunction([(0, 0), (5, 10), (10, 0)])
+    with assert_raises(ValueError):
+        VehicleType(duration_cost=non_monotone)
 
 
 def test_vehicle_type_does_not_raise_for_all_zero_edge_case():
@@ -597,7 +599,6 @@ def test_vehicle_type_does_not_raise_for_all_zero_edge_case():
         shift_duration=0,
         max_distance=0,
         unit_distance_cost=0,
-        unit_duration_cost=0,
         start_late=0,
     )
 
@@ -611,7 +612,6 @@ def test_vehicle_type_does_not_raise_for_all_zero_edge_case():
     assert_equal(vehicle_type.shift_duration, 0)
     assert_equal(vehicle_type.max_distance, 0)
     assert_equal(vehicle_type.unit_distance_cost, 0)
-    assert_equal(vehicle_type.unit_duration_cost, 0)
     assert_equal(vehicle_type.start_late, 0)
 
 
@@ -628,8 +628,6 @@ def test_vehicle_type_default_values():
     assert_equal(vehicle_type.fixed_cost, 0)
     assert_equal(vehicle_type.tw_early, 0)
     assert_equal(vehicle_type.unit_distance_cost, 1)
-    assert_equal(vehicle_type.unit_duration_cost, 0)
-    assert_equal(vehicle_type.unit_overtime_cost, 0)
     assert_equal(vehicle_type.name, "")
 
     # The default value for the following fields is the largest representable
@@ -659,7 +657,6 @@ def test_vehicle_type_attribute_access():
         shift_duration=23,
         max_distance=31,
         unit_distance_cost=37,
-        unit_duration_cost=41,
         start_late=18,
         max_overtime=43,
         name="vehicle_type name",
@@ -675,7 +672,6 @@ def test_vehicle_type_attribute_access():
     assert_equal(vehicle_type.shift_duration, 23)
     assert_equal(vehicle_type.max_distance, 31)
     assert_equal(vehicle_type.unit_distance_cost, 37)
-    assert_equal(vehicle_type.unit_duration_cost, 41)
     assert_equal(vehicle_type.start_late, 18)
     assert_equal(vehicle_type.max_overtime, 43)
 
@@ -729,6 +725,29 @@ def test_vehicle_type_replace():
     assert_equal(new.num_available, 5)
     assert_equal(new.capacity, [10])
     assert_equal(new.name, "new")
+
+
+def test_vehicle_type_duration_cost():
+    """
+    Tests that the duration_cost field is correctly stored, defaults to a zero
+    function, can be updated via replace(), and survives a pickle round-trip.
+    """
+    zero = PiecewiseLinearFunction([(0, 0), (1, 0)])
+    assert_equal(VehicleType().duration_cost, zero)
+
+    pwl = PiecewiseLinearFunction([(0, 0), (10, 10)])
+    veh_type = VehicleType(duration_cost=pwl)
+    assert_equal(veh_type.duration_cost, pwl)
+
+    # PLF with non-zero intercept: covers the seg.first != 0 branch in the
+    # hasDurationCost check.
+    pwl2 = PiecewiseLinearFunction([(0, 5), (10, 15)])
+    assert_equal(VehicleType(duration_cost=pwl2).duration_cost, pwl2)
+
+    replaced = veh_type.replace(duration_cost=zero)
+    assert_equal(replaced.duration_cost, zero)
+
+    assert_equal(pickle.loads(pickle.dumps(veh_type)), veh_type)
 
 
 def test_vehicle_type_multiple_capacities():
@@ -1051,6 +1070,10 @@ def test_vehicle_type_eq():
     # This vehicle type is equivalent to veh_type1.
     veh_type3 = VehicleType(num_available=3, profile=0)
     assert_(veh_type1 == veh_type3)
+
+    # Two types differing only in duration_cost are not equal.
+    pwl = PiecewiseLinearFunction([(0, 0), (10, 10)])
+    assert_(VehicleType() != VehicleType(duration_cost=pwl))
 
     # And some things that are not vehicle types.
     assert_(veh_type1 != "text")

@@ -2,7 +2,13 @@ import numpy as np
 from numpy.testing import assert_, assert_equal, assert_raises
 from pytest import mark
 
-from pyvrp import Depot, Location, ProblemData, VehicleType
+from pyvrp import (
+    Depot,
+    Location,
+    PiecewiseLinearFunction,
+    ProblemData,
+    VehicleType,
+)
 from pyvrp.search import NeighbourhoodParams, compute_neighbours
 
 
@@ -157,12 +163,34 @@ def test_different_routing_costs(ok_small):
     orig_type = ok_small.vehicle_type(0)
     different_cost_data = new_data.replace(
         vehicle_types=[
-            orig_type.replace(unit_distance_cost=1, unit_duration_cost=0),
-            orig_type.replace(unit_distance_cost=0, unit_duration_cost=1),
+            orig_type.replace(unit_distance_cost=1),
+            orig_type.replace(
+                unit_distance_cost=0,
+                duration_cost=PiecewiseLinearFunction([], [(0, 1)]),
+            ),
         ],
     )
     different_cost_neighbours = compute_neighbours(different_cost_data)
     assert_(different_cost_neighbours != new_neighbours)
+
+
+def test_duration_cost_pwl_affects_neighbourhood(ok_small):
+    """
+    Tests that a non-trivial duration_cost PWL affects the computed
+    neighbourhood, exercising the PWL evaluation in the proximity calculation.
+    """
+    rng = np.random.default_rng(seed=42)
+    new_dur = rng.integers(0, 1_000, size=(5, 5))
+    np.fill_diagonal(new_dur, 0)
+    data = ok_small.replace(duration_matrices=[new_dur])
+
+    orig_type = data.vehicle_type(0)
+    pwl = PiecewiseLinearFunction([(0, 0), (1_000, 1_000)])
+    pwl_data = data.replace(
+        vehicle_types=[orig_type.replace(duration_cost=pwl)]
+    )
+
+    assert_(compute_neighbours(pwl_data) != compute_neighbours(data))
 
 
 def test_multiple_routing_profiles(ok_small):
