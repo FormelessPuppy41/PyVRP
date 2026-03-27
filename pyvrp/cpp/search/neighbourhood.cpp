@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <tuple>
 
+using pyvrp::Duration;
 using pyvrp::Matrix;
 using pyvrp::ProblemData;
 using pyvrp::search::NeighbourhoodParams;
