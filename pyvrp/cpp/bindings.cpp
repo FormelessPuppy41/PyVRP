@@ -379,14 +379,12 @@ PYBIND11_MODULE(_pyvrp, m)
                       pyvrp::Duration,
                       pyvrp::Distance,
                       pyvrp::Cost,
-                      pyvrp::Cost,
                       size_t,
                       std::optional<pyvrp::Duration>,
                       std::vector<pyvrp::Load>,
                       std::vector<size_t>,
                       size_t,
                       pyvrp::Duration,
-                      pyvrp::Cost,
                       DurationCost,
                       char const *>(),
              py::arg("num_available") = 1,
@@ -401,14 +399,12 @@ PYBIND11_MODULE(_pyvrp, m)
              py::arg("max_distance")
              = std::numeric_limits<pyvrp::Distance>::max(),
              py::arg("unit_distance_cost") = 1,
-             py::arg("unit_duration_cost") = 0,
              py::arg("profile") = 0,
              py::arg("start_late") = py::none(),
              py::arg("initial_load") = py::list(),
              py::arg("reload_depots") = py::list(),
              py::arg("max_reloads") = std::numeric_limits<size_t>::max(),
              py::arg("max_overtime") = 0,
-             py::arg("unit_overtime_cost") = 0,
              py::arg("duration_cost") = DurationCost(
                  {}, {DurationCost::Segment{pyvrp::Cost{0}, pyvrp::Cost{0}}}),
              py::kw_only(),
@@ -427,8 +423,6 @@ PYBIND11_MODULE(_pyvrp, m)
         .def_readonly("max_distance", &ProblemData::VehicleType::maxDistance)
         .def_readonly("unit_distance_cost",
                       &ProblemData::VehicleType::unitDistanceCost)
-        .def_readonly("unit_duration_cost",
-                      &ProblemData::VehicleType::unitDurationCost)
         .def_readonly("profile", &ProblemData::VehicleType::profile)
         .def_readonly("start_late", &ProblemData::VehicleType::startLate)
         .def_readonly("initial_load",
@@ -439,8 +433,6 @@ PYBIND11_MODULE(_pyvrp, m)
                       py::return_value_policy::reference_internal)
         .def_readonly("max_reloads", &ProblemData::VehicleType::maxReloads)
         .def_readonly("max_overtime", &ProblemData::VehicleType::maxOvertime)
-        .def_readonly("unit_overtime_cost",
-                      &ProblemData::VehicleType::unitOvertimeCost)
         .def_readonly("duration_cost",
                       &ProblemData::VehicleType::durationCost,
                       py::return_value_policy::reference_internal)
@@ -461,14 +453,12 @@ PYBIND11_MODULE(_pyvrp, m)
              py::arg("shift_duration") = py::none(),
              py::arg("max_distance") = py::none(),
              py::arg("unit_distance_cost") = py::none(),
-             py::arg("unit_duration_cost") = py::none(),
              py::arg("profile") = py::none(),
              py::arg("start_late") = py::none(),
              py::arg("initial_load") = py::none(),
              py::arg("reload_depots") = py::none(),
              py::arg("max_reloads") = py::none(),
              py::arg("max_overtime") = py::none(),
-             py::arg("unit_overtime_cost") = py::none(),
              py::arg("duration_cost") = py::none(),
              py::kw_only(),
              py::arg("name") = py::none(),
@@ -486,14 +476,12 @@ PYBIND11_MODULE(_pyvrp, m)
                                       vehicleType.shiftDuration,
                                       vehicleType.maxDistance,
                                       vehicleType.unitDistanceCost,
-                                      vehicleType.unitDurationCost,
                                       vehicleType.profile,
                                       vehicleType.startLate,
                                       vehicleType.initialLoad,
                                       vehicleType.reloadDepots,
                                       vehicleType.maxReloads,
                                       vehicleType.maxOvertime,
-                                      vehicleType.unitOvertimeCost,
                                       vehicleType.durationCost,
                                       vehicleType.name);
             },
@@ -509,16 +497,14 @@ PYBIND11_MODULE(_pyvrp, m)
                     t[7].cast<pyvrp::Duration>(),           // shift duration
                     t[8].cast<pyvrp::Distance>(),           // max distance
                     t[9].cast<pyvrp::Cost>(),       // unit distance cost
-                    t[10].cast<pyvrp::Cost>(),      // unit duration cost
-                    t[11].cast<size_t>(),           // profile
-                    t[12].cast<pyvrp::Duration>(),  // start late
-                    t[13].cast<std::vector<pyvrp::Load>>(),  // initial load
-                    t[14].cast<std::vector<size_t>>(),       // reload depots
-                    t[15].cast<size_t>(),                    // max reloads
-                    t[16].cast<pyvrp::Duration>(),           // max overtime
-                    t[17].cast<pyvrp::Cost>(),   // unit overtime cost
-                    t[18].cast<DurationCost>(),  // duration cost
-                    t[19].cast<std::string>());  // name
+                    t[10].cast<size_t>(),           // profile
+                    t[11].cast<pyvrp::Duration>(),  // start late
+                    t[12].cast<std::vector<pyvrp::Load>>(),  // initial load
+                    t[13].cast<std::vector<size_t>>(),       // reload depots
+                    t[14].cast<size_t>(),                    // max reloads
+                    t[15].cast<pyvrp::Duration>(),           // max overtime
+                    t[16].cast<DurationCost>(),              // duration cost
+                    t[17].cast<std::string>());              // name
 
                 return vehicleType;
             }))

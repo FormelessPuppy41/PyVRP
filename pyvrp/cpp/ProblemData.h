@@ -437,9 +437,6 @@ public:
      * unit_distance_cost
      *     Cost per unit of distance travelled by vehicles of this type. Default
      *     1.
-     * unit_duration_cost
-     *     Cost per unit of duration on routes serviced by vehicles of this
-     *     type. Default 0.
      * profile
      *     This vehicle type's routing profile. Default 0, the first profile.
      * start_late
@@ -460,9 +457,6 @@ public:
      * max_overtime
      *     Maximum allowed overtime, on top of the :py:attr:`~shift_duration`.
      *     Default 0, that is, overtime is not allowed.
-     * unit_overtime_cost
-     *     Cost of a unit of overtime. This is in addition to the regular
-     *     :py:attr:`~unit_duration_cost` of route durations. Default 0.
      * duration_cost
      *     Piecewise linear duration cost function :math:`f(\text{duration})`.
      *     When not provided, a zero-cost function is used.
@@ -494,8 +488,6 @@ public:
      *     unconstrained.
      * unit_distance_cost
      *     Cost per unit of distance travelled by vehicles of this type.
-     * unit_duration_cost
-     *     Cost per unit of duration on routes using vehicles of this type.
      * profile
      *     This vehicle type's routing profile.
      * start_late
@@ -512,8 +504,6 @@ public:
      * max_overtime
      *     Maximum amount of allowed overtime, on top of the nominal
      *     :py:attr:`~shift_duration`.
-     * unit_overtime_cost
-     *     Additional cost of a unit of overtime.
      * duration_cost
      *     Piecewise linear duration cost function :math:`f(\text{duration})`.
      * max_duration
@@ -536,14 +526,12 @@ public:
         Distance const maxDistance;        // Maximum route distance
         Cost const fixedCost;         // Fixed cost of using this vehicle type
         Cost const unitDistanceCost;  // Variable cost per unit of distance
-        Cost const unitDurationCost;  // Variable cost per unit of duration
         size_t const profile;         // Distance and duration profile
         Duration const startLate;     // Latest start of shift
         std::vector<Load> const initialLoad;     // Initially used capacity
         std::vector<size_t> const reloadDepots;  // Reload locations
         size_t const maxReloads;                 // Maximum number of reloads
         Duration const maxOvertime;              // Maximum allowed overtime
-        Cost const unitOvertimeCost;             // Cost per unit of overtime
         Duration const maxDuration;  // Maximum route duration, incl. overtime
         DurationCost const durationCost;
         bool const
@@ -561,14 +549,12 @@ public:
                     = std::numeric_limits<Duration>::max(),
                     Distance maxDistance = std::numeric_limits<Distance>::max(),
                     Cost unitDistanceCost = 1,
-                    Cost unitDurationCost = 0,
                     size_t profile = 0,
                     std::optional<Duration> startLate = std::nullopt,
                     std::vector<Load> initialLoad = {},
                     std::vector<size_t> reloadDepots = {},
                     size_t maxReloads = std::numeric_limits<size_t>::max(),
                     Duration maxOvertime = 0,
-                    Cost unitOvertimeCost = 0,
                     DurationCost durationCost
                     = DurationCost({},
                                    {DurationCost::Segment{Cost{0}, Cost{0}}}),
@@ -598,14 +584,12 @@ public:
                             std::optional<Duration> shiftDuration,
                             std::optional<Distance> maxDistance,
                             std::optional<Cost> unitDistanceCost,
-                            std::optional<Cost> unitDurationCost,
                             std::optional<size_t> profile,
                             std::optional<Duration> startLate,
                             std::optional<std::vector<Load>> initialLoad,
                             std::optional<std::vector<size_t>> reloadDepots,
                             std::optional<size_t> maxReloads,
                             std::optional<Duration> maxOvertime,
-                            std::optional<Cost> unitOvertimeCost,
                             std::optional<DurationCost> durationCost,
                             std::optional<std::string> name) const;
 

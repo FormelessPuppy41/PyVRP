@@ -33,12 +33,13 @@ Matrix<double> computeProximity(ProblemData const &data,
                         data.numClients(),
                         std::numeric_limits<double>::max());
 
-    std::set<std::tuple<pyvrp::Cost, pyvrp::Cost, size_t>> seen = {};
+    using Key = std::
+        tuple<pyvrp::Cost, ProblemData::VehicleType::DurationCost, size_t>;
+    std::set<Key> seen = {};
     for (auto const &vehType : data.vehicleTypes())
     {
-        auto const key = std::make_tuple(vehType.unitDistanceCost,
-                                         vehType.unitDurationCost,
-                                         vehType.profile);
+        auto const key = std::make_tuple(
+            vehType.unitDistanceCost, vehType.durationCost, vehType.profile);
 
         if (seen.contains(key))  // then proximity has already been updated
             continue;            // based on this cost profile
@@ -72,9 +73,11 @@ Matrix<double> computeProximity(ProblemData const &data,
                 auto const minWait = toEarly - edgeDur - frmServ - frmLate;
                 auto const duration = edgeDur + std::max(minWait, 0.0);
 
+                auto const durationCostVal = static_cast<double>(
+                    vehType.durationCost(Duration(duration)));
                 auto const cost  // minimum edge cost using this vehicle type
                     = static_cast<double>(vehType.unitDistanceCost) * distance
-                      + static_cast<double>(vehType.unitDurationCost) * duration
+                      + durationCostVal
                       + params.weightWaitTime * std::max(minWait, 0.0);
 
                 prox(frm, to) = std::min(cost, prox(frm, to));
