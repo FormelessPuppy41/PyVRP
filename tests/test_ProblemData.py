@@ -10,6 +10,7 @@ from pyvrp import (
     ClientGroup,
     Depot,
     Location,
+    PiecewiseLinearFunction,
     ProblemData,
     VehicleType,
 )
@@ -434,6 +435,263 @@ def test_matrices_are_not_copies():
     assert_(dur1.base is dur2.base)
 
 
+@pytest.mark.parametrize(
+    (
+        "capacity",
+        "num_available",
+        "tw_early",
+        "tw_late",
+        "shift_duration",
+        "max_distance",
+        "fixed_cost",
+        "unit_distance_cost",
+        "start_late",
+        "initial_load",
+    ),
+    [
+        (0, 0, 0, 0, 0, 0, 0, 0, 0, 0),  # num_available must be positive
+        (-1, 1, 0, 0, 0, 0, 1, 0, 0, 0),  # capacity cannot be negative
+        (-100, 1, 0, 0, 0, 0, 0, 0, 0, 0),  # this is just wrong
+        (0, 1, 1, 1, 0, 0, 0, 0, 0, 0),  # early > start late
+        (0, 1, 1, 1, 0, 0, 0, 0, 2, 0),  # start late > late
+        (0, 1, -1, 0, 0, 0, 0, 0, 0, 0),  # negative early
+        (0, 1, 0, -1, 0, 0, 0, 0, 0, 0),  # negative late
+        (0, 1, 0, 0, -1, 0, 0, 0, 0, 0),  # negative shift_duration
+        (0, 1, 0, 0, 0, -1, 0, 0, 0, 0),  # negative max_distance
+        (0, 1, 0, 0, 0, 0, -1, 0, 0, 0),  # negative fixed_cost
+        (0, 1, 0, 0, 0, 0, 0, -1, 0, 0),  # negative unit_distance_cost
+        (0, 1, 0, 0, 0, 0, 0, 0, -1, 0),  # negative start late
+        (0, 1, 0, 0, 0, 0, 0, 0, 0, -1),  # negative initial load
+        (0, 1, 0, 0, 0, 0, 0, 0, 0, 2),  # initial load exceeds capacity
+    ],
+)
+def test_vehicle_type_raises_invalid_data(
+    capacity: int,
+    num_available: int,
+    tw_early: int,
+    tw_late: int,
+    shift_duration: int,
+    max_distance: int,
+    fixed_cost: int,
+    unit_distance_cost: int,
+    start_late: int,
+    initial_load: int,
+):
+    """
+    Tests that the vehicle type constructor raises when given invalid
+    arguments.
+    """
+    with assert_raises(ValueError):
+        VehicleType(
+            num_available=num_available,
+            capacity=[capacity],
+            fixed_cost=fixed_cost,
+            tw_early=tw_early,
+            tw_late=tw_late,
+            shift_duration=shift_duration,
+            max_distance=max_distance,
+            unit_distance_cost=unit_distance_cost,
+            start_late=start_late,
+            initial_load=[initial_load],
+        )
+
+
+def test_vehicle_type_raises_negative_max_overtime():
+    with assert_raises(ValueError):
+        VehicleType(max_overtime=-1)
+
+
+def test_vehicle_type_raises_negative_duration_cost():
+    with assert_raises(ValueError):
+        VehicleType(duration_cost=PiecewiseLinearFunction([], [(0, -1)]))
+
+
+def test_vehicle_type_raises_non_monotone_duration_cost():
+    """
+    Tests that the vehicle type constructor raises when the duration cost
+    function is not monotonically increasing.
+    """
+    non_monotone = PiecewiseLinearFunction([(0, 0), (5, 10), (10, 0)])
+    with assert_raises(ValueError):
+        VehicleType(duration_cost=non_monotone)
+
+
+def test_vehicle_type_does_not_raise_for_all_zero_edge_case():
+    """
+    The vehicle type constructor should allow the following edge case where all
+    data has been zeroed out.
+    """
+    vehicle_type = VehicleType(
+        num_available=1,
+        capacity=[],
+        start_depot=0,
+        end_depot=0,
+        fixed_cost=0,
+        tw_early=0,
+        tw_late=0,
+        shift_duration=0,
+        max_distance=0,
+        unit_distance_cost=0,
+        start_late=0,
+    )
+
+    assert_equal(vehicle_type.num_available, 1)
+    assert_equal(vehicle_type.start_depot, 0)
+    assert_equal(vehicle_type.end_depot, 0)
+    assert_equal(vehicle_type.capacity, [])
+    assert_equal(vehicle_type.fixed_cost, 0)
+    assert_equal(vehicle_type.tw_early, 0)
+    assert_equal(vehicle_type.tw_late, 0)
+    assert_equal(vehicle_type.shift_duration, 0)
+    assert_equal(vehicle_type.max_distance, 0)
+    assert_equal(vehicle_type.unit_distance_cost, 0)
+    assert_equal(vehicle_type.start_late, 0)
+
+
+def test_vehicle_type_default_values():
+    """
+    Tests that the default values for costs and shift time windows are set
+    correctly.
+    """
+    vehicle_type = VehicleType()
+    assert_equal(vehicle_type.num_available, 1)
+    assert_equal(vehicle_type.start_depot, 0)
+    assert_equal(vehicle_type.end_depot, 0)
+    assert_equal(vehicle_type.capacity, [])
+    assert_equal(vehicle_type.fixed_cost, 0)
+    assert_equal(vehicle_type.tw_early, 0)
+    assert_equal(vehicle_type.unit_distance_cost, 1)
+    assert_equal(vehicle_type.name, "")
+
+    # The default value for the following fields is the largest representable
+    # integral value.
+    assert_equal(vehicle_type.tw_late, _INT_MAX)
+    assert_equal(vehicle_type.shift_duration, _INT_MAX)
+    assert_equal(vehicle_type.max_duration, _INT_MAX)
+    assert_equal(vehicle_type.max_distance, _INT_MAX)
+
+    # The default value for start_late is the value of tw_late.
+    assert_equal(vehicle_type.start_late, vehicle_type.tw_late)
+
+
+def test_vehicle_type_attribute_access():
+    """
+    Smoke test that checks all attributes are equal to the values they were
+    given in the constructor's arguments.
+    """
+    vehicle_type = VehicleType(
+        num_available=7,
+        start_depot=29,
+        end_depot=43,
+        capacity=[13],
+        fixed_cost=3,
+        tw_early=17,
+        tw_late=19,
+        shift_duration=23,
+        max_distance=31,
+        unit_distance_cost=37,
+        start_late=18,
+        max_overtime=43,
+        name="vehicle_type name",
+    )
+
+    assert_equal(vehicle_type.num_available, 7)
+    assert_equal(vehicle_type.start_depot, 29)
+    assert_equal(vehicle_type.end_depot, 43)
+    assert_equal(vehicle_type.capacity, [13])
+    assert_equal(vehicle_type.fixed_cost, 3)
+    assert_equal(vehicle_type.tw_early, 17)
+    assert_equal(vehicle_type.tw_late, 19)
+    assert_equal(vehicle_type.shift_duration, 23)
+    assert_equal(vehicle_type.max_distance, 31)
+    assert_equal(vehicle_type.unit_distance_cost, 37)
+    assert_equal(vehicle_type.start_late, 18)
+    assert_equal(vehicle_type.max_overtime, 43)
+
+    assert_equal(vehicle_type.name, "vehicle_type name")
+    assert_equal(str(vehicle_type), "vehicle_type name")
+
+
+@pytest.mark.parametrize(
+    ("shift_duration", "max_overtime", "expected"),
+    [
+        (_INT_MAX, _INT_MAX, _INT_MAX),  # should not overflow
+        (_INT_MAX, 0, _INT_MAX),  # borderline
+        (0, _INT_MAX, _INT_MAX),  # borderline
+        (_INT_MAX - 1, 1, _INT_MAX),  # check for off-by-one
+        (1, _INT_MAX - 1, _INT_MAX),  # check for off-by-one
+        (10, 10, 20),  # completely OK, should sum both terms
+    ],
+)
+def test_vehicle_type_max_duration(
+    shift_duration: int,
+    max_overtime: int,
+    expected: int,
+):
+    """
+    Tests that the maximum duration property is correctly computed, and does
+    not over- or underflow.
+    """
+    veh_type = VehicleType(
+        shift_duration=shift_duration,
+        max_overtime=max_overtime,
+    )
+
+    assert_equal(veh_type.shift_duration, shift_duration)
+    assert_equal(veh_type.max_overtime, max_overtime)
+    assert_equal(veh_type.max_duration, expected)
+
+
+def test_vehicle_type_replace():
+    """
+    Tests that calling replace() on a VehicleType functions correctly.
+    """
+    vehicle_type = VehicleType(num_available=7, capacity=[10], name="test")
+    assert_equal(vehicle_type.num_available, 7)
+    assert_equal(vehicle_type.capacity, [10])
+    assert_equal(vehicle_type.name, "test")
+
+    # Replacing the number of available vehicles and name should be reflected
+    # in the returned vehicle type, but any other values should remain the same
+    # as the original. In particular, capacity should not be changed.
+    new = vehicle_type.replace(num_available=5, name="new")
+    assert_equal(new.num_available, 5)
+    assert_equal(new.capacity, [10])
+    assert_equal(new.name, "new")
+
+
+def test_vehicle_type_duration_cost():
+    """
+    Tests that the duration_cost field is correctly stored, defaults to a zero
+    function, can be updated via replace(), and survives a pickle round-trip.
+    """
+    zero = PiecewiseLinearFunction([(0, 0), (1, 0)])
+    assert_equal(VehicleType().duration_cost, zero)
+
+    pwl = PiecewiseLinearFunction([(0, 0), (10, 10)])
+    veh_type = VehicleType(duration_cost=pwl)
+    assert_equal(veh_type.duration_cost, pwl)
+
+    # PLF with non-zero intercept: covers the seg.first != 0 branch in the
+    # hasDurationCost check.
+    pwl2 = PiecewiseLinearFunction([(0, 5), (10, 15)])
+    assert_equal(VehicleType(duration_cost=pwl2).duration_cost, pwl2)
+
+    replaced = veh_type.replace(duration_cost=zero)
+    assert_equal(replaced.duration_cost, zero)
+
+    assert_equal(pickle.loads(pickle.dumps(veh_type)), veh_type)
+
+
+def test_vehicle_type_multiple_capacities():
+    """
+    Tests that vehicle types correctly handle multiple capacities.
+    """
+    vehicle_type = VehicleType(capacity=[998, 37], num_available=10)
+    assert_equal(vehicle_type.num_available, 10)
+    assert_equal(vehicle_type.capacity, [998, 37])
+
+
 def test_depot_client_raises_invalid_index(ok_small):
     """
     Tests that calling depot(idx) and client(idx) raises when the index is out
@@ -648,6 +906,144 @@ def test_replacing_client_groups(ok_small):
     # client as its only member.
     assert_equal(data.num_groups, 1)
     assert_equal(data.group(0).clients, [0])
+
+
+def test_location_eq():
+    """
+    Tests the location's equality operator.
+    """
+    loc1 = Location(x=0, y=0, name="")
+    loc2 = Location(x=0, y=1, name="")
+    assert_(loc1 == loc1)
+    assert_(loc2 != loc1)
+
+    # Equivalent to loc1.
+    loc3 = Location(x=0, y=0, name="")
+    assert_(loc3 == loc1)
+
+    # And some things that are not locations at all.
+    assert_(loc1 != "test")
+    assert_(loc1 != 1)
+
+
+def test_client_eq():
+    """
+    Tests the client's equality operator.
+    """
+    client1 = Client(location=0, delivery=[1], pickup=[2], tw_late=3, group=0)
+    client2 = Client(location=0, delivery=[1], pickup=[2], tw_late=3, group=1)
+    assert_(client1 != client2)
+
+    # This client is equivalent to client1.
+    client3 = Client(location=0, delivery=[1], pickup=[2], tw_late=3, group=0)
+    assert_(client1 == client3)
+    assert_(client3 == client3)
+
+    # And some things that are not clients.
+    assert_(client1 != "text")
+    assert_(client1 != 1)
+
+
+def test_depot_eq():
+    """
+    Tests the depot's equality operator.
+    """
+    depot1 = Depot(location=0)
+    depot2 = Depot(location=1)
+    assert_(depot1 != depot2)
+
+    # This depot is equivalent to depot1.
+    depot3 = Depot(location=0)
+    assert_(depot1 == depot3)
+    assert_(depot3 == depot3)
+
+    # And some things that are not depots.
+    assert_(depot1 != "text")
+    assert_(depot1 != 3)
+
+    depot4 = Depot(location=0, name="test")
+    assert_(depot1 != depot4)
+
+
+def test_vehicle_type_eq():
+    """
+    Tests the vehicle type's equality operator.
+    """
+    veh_type1 = VehicleType(num_available=3, profile=0)
+    veh_type2 = VehicleType(num_available=3, profile=1)
+    assert_(veh_type1 != veh_type2)
+
+    # This vehicle type is equivalent to veh_type1.
+    veh_type3 = VehicleType(num_available=3, profile=0)
+    assert_(veh_type1 == veh_type3)
+
+    # Two types differing only in duration_cost are not equal.
+    pwl = PiecewiseLinearFunction([(0, 0), (10, 10)])
+    assert_(VehicleType() != VehicleType(duration_cost=pwl))
+
+    # And some things that are not vehicle types.
+    assert_(veh_type1 != "text")
+    assert_(veh_type1 != 5)
+
+
+def test_client_group_eq():
+    """
+    Tests the client group's equality operator.
+    """
+    group1 = ClientGroup(clients=[1, 2], required=False)
+    group2 = ClientGroup(clients=[1, 2], required=True)
+    assert_(group1 != group2)
+
+    # This group is equivalent to group1.
+    group3 = ClientGroup(clients=[1, 2], required=False)
+    assert_(group1 == group3)
+
+    # And some things that are not client groups.
+    assert_(group1 != "text")
+    assert_(group1 != 7)
+
+    group4 = ClientGroup(clients=[1, 2], required=False, name="test")
+    assert_(group1 != group4)
+
+
+def test_eq_checks_names():
+    """
+    Tests that the equality operators on named objects also considers the name
+    when determining equality.
+    """
+    assert_(Location(0, 0, name="1") != Location(0, 0, name="2"))
+    assert_(Client(0, name="1") != Client(0, name="2"))
+    assert_(Depot(0, name="1") != Depot(0, name="2"))
+    assert_(VehicleType(name="1") != VehicleType(name="2"))
+    assert_(ClientGroup(name="1") != ClientGroup(name="2"))
+
+
+@pytest.mark.parametrize("cls", (Client, Depot))
+def test_pickle_locations(cls):
+    """
+    Tests that client and depot locations can be serialised and unserialised.
+    """
+    before_pickle = cls(location=0, name="test")
+    bytes = pickle.dumps(before_pickle)
+    assert_equal(pickle.loads(bytes), before_pickle)
+
+
+def test_pickle_client_group():
+    """
+    Tests that client groups can be serialised and unserialised.
+    """
+    before_pickle = ClientGroup(clients=[1, 2, 3], required=False, name="test")
+    bytes = pickle.dumps(before_pickle)
+    assert_equal(pickle.loads(bytes), before_pickle)
+
+
+def test_pickle_vehicle_type():
+    """
+    Tests that vehicle types can be serialised and unserialised.
+    """
+    before_pickle = VehicleType(num_available=12, capacity=[3], name="test123")
+    bytes = pickle.dumps(before_pickle)
+    assert_equal(pickle.loads(bytes), before_pickle)
 
 
 def test_pickle_data(ok_small, rc208):

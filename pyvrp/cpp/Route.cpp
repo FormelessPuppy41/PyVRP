@@ -137,8 +137,7 @@ void Route::setSchedule(ProblemData const &data, Activities const &activities)
 
     duration_ = ds.duration();
     overtime_ = std::max<Duration>(duration_ - vehData.shiftDuration, 0);
-    durationCost_ = vehData.unitDurationCost * static_cast<Cost>(duration_)
-                    + vehData.unitOvertimeCost * static_cast<Cost>(overtime_);
+    durationCost_ = vehData.durationCost(duration_);
     startTime_ = ds.startEarly();
     releaseTime_ = ds.releaseTime();
     slack_ = ds.slack();

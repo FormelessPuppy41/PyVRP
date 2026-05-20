@@ -55,9 +55,13 @@ jobs:
         run: |
           uv sync
           uv run buildtools/build_extensions.py --build_type debugoptimized --clean
-      - name: Run benchmarks
+      - name: Run benchmarks with CodSpeed
+        if: ${{ secrets.CODSPEED_TOKEN != '' }}
         # We evaluate the microbenchmarks using the release build.
         uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3.8.1
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
           run: uv run pytest benchmarks/ --codspeed
+      - name: Run benchmarks without CodSpeed upload
+        if: ${{ secrets.CODSPEED_TOKEN == '' }}
+        run: uv run pytest benchmarks/

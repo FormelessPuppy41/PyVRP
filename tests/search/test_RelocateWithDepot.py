@@ -8,6 +8,7 @@ from pyvrp import (
     CostEvaluator,
     Depot,
     Location,
+    PiecewiseLinearFunction,
     ProblemData,
     VehicleType,
 )
@@ -362,7 +363,11 @@ def test_depot_service_duration(ok_small_multiple_trips):
     veh_type = ok_small_multiple_trips.vehicle_type(0)
     data = ok_small_multiple_trips.replace(
         depots=[Depot(0, 0, service_duration=200)],
-        vehicle_types=[veh_type.replace(unit_duration_cost=1)],
+        vehicle_types=[
+            veh_type.replace(
+                duration_cost=PiecewiseLinearFunction([], [(0, 1)]),
+            )
+        ],
         distance_matrices=[np.zeros((5, 5))],
         duration_matrices=[np.zeros((5, 5))],
     )

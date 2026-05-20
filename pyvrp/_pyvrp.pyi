@@ -76,6 +76,7 @@ class PiecewiseLinearFunction:
     @property
     def segments(self) -> list[tuple[np.int64, np.int64]]: ...
     def is_monotonically_increasing(self) -> bool: ...
+    def is_non_negative(self, lb: np.int64) -> bool: ...
     def __eq__(self, other: object) -> bool: ...
     def __getstate__(self) -> tuple: ...
     def __setstate__(self, state: tuple, /) -> None: ...
@@ -170,14 +171,13 @@ class VehicleType:
     max_distance: int
     fixed_cost: int
     unit_distance_cost: int
-    unit_duration_cost: int
     profile: int
     start_late: int
     initial_load: list[int]
     reload_depots: list[int]
     max_reloads: int
     max_overtime: int
-    unit_overtime_cost: int
+    duration_cost: PiecewiseLinearFunction
     max_duration: int
     name: str
     def __init__(
@@ -192,14 +192,13 @@ class VehicleType:
         shift_duration: int = ...,
         max_distance: int = ...,
         unit_distance_cost: int = 1,
-        unit_duration_cost: int = 0,
         profile: int = 0,
         start_late: int | None = None,
         initial_load: list[int] = [],
         reload_depots: list[int] = [],
         max_reloads: int = ...,
         max_overtime: int = 0,
-        unit_overtime_cost: int = 0,
+        duration_cost: PiecewiseLinearFunction = ...,
         *,
         name: str = "",
     ) -> None: ...
@@ -217,14 +216,13 @@ class VehicleType:
         shift_duration: int | None = None,
         max_distance: int | None = None,
         unit_distance_cost: int | None = None,
-        unit_duration_cost: int | None = None,
         profile: int | None = None,
         start_late: int | None = None,
         initial_load: list[int] | None = None,
         reload_depots: list[int] | None = None,
         max_reloads: int | None = None,
         max_overtime: int | None = None,
-        unit_overtime_cost: int | None = None,
+        duration_cost: PiecewiseLinearFunction | None = None,
         *,
         name: str | None = None,
     ) -> VehicleType: ...

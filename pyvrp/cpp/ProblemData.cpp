@@ -7,12 +7,14 @@
 
 using pyvrp::Client;
 using pyvrp::ClientGroup;
+using pyvrp::Cost;
 using pyvrp::Depot;
 using pyvrp::Distance;
 using pyvrp::Duration;
 using pyvrp::Load;
 using pyvrp::Location;
 using pyvrp::Matrix;
+using pyvrp::PiecewiseLinearFunction;
 using pyvrp::ProblemData;
 using pyvrp::VehicleType;
 
@@ -37,7 +39,460 @@ bool hasTimeWindow(auto const &arg)
 }
 }  // namespace
 
-std::vector<Location> const &ProblemData::locations() const
+ProblemData::Location::Location(Coordinate x, Coordinate y, std::string name)
+    : x(x), y(y), name(duplicate(name.data()))
+{
+}
+
+ProblemData::Location::Location(Location const &location)
+    : x(location.x), y(location.y), name(duplicate(location.name))
+{
+}
+
+ProblemData::Location::Location(Location &&location)
+    : x(location.x), y(location.y), name(location.name)  // we can steal
+{
+    location.name = nullptr;  // stolen
+}
+
+bool ProblemData::Location::operator==(Location const &other) const
+{
+    return x == other.x && y == other.y && std::strcmp(name, other.name) == 0;
+}
+
+ProblemData::Location::~Location() { delete[] name; }
+
+ProblemData::Client::Client(size_t location,
+                            std::vector<Load> delivery,
+                            std::vector<Load> pickup,
+                            Duration serviceDuration,
+                            Duration twEarly,
+                            Duration twLate,
+                            Duration releaseTime,
+                            Cost prize,
+                            bool required,
+                            std::optional<size_t> group,
+                            std::string name)
+    : location(location),
+      serviceDuration(serviceDuration),
+      twEarly(twEarly),
+      twLate(twLate),
+      delivery(pad(delivery, pickup)),
+      pickup(pad(pickup, delivery)),
+      releaseTime(releaseTime),
+      prize(prize),
+      required(required),
+      group(group),
+      name(duplicate(name.data()))
+{
+    assert(delivery.size() == pickup.size());
+
+    if (std::any_of(delivery.begin(), delivery.end(), isNegative<Load>))
+        throw std::invalid_argument("delivery amounts must be >= 0.");
+
+    if (std::any_of(pickup.begin(), pickup.end(), isNegative<Load>))
+        throw std::invalid_argument("pickup amounts must be >= 0.");
+
+    if (serviceDuration < 0)
+        throw std::invalid_argument("service_duration must be >= 0.");
+
+    if (twEarly > twLate)
+        throw std::invalid_argument("tw_early must be <= tw_late.");
+
+    if (twEarly < 0)
+        throw std::invalid_argument("tw_early must be >= 0.");
+
+    if (releaseTime > twLate)
+        throw std::invalid_argument("release_time must be <= tw_late");
+
+    if (releaseTime < 0)
+        throw std::invalid_argument("release_time must be >= 0.");
+
+    if (prize < 0)
+        throw std::invalid_argument("prize must be >= 0.");
+}
+
+ProblemData::Client::Client(Client const &client)
+    : location(client.location),
+      serviceDuration(client.serviceDuration),
+      twEarly(client.twEarly),
+      twLate(client.twLate),
+      delivery(client.delivery),
+      pickup(client.pickup),
+      releaseTime(client.releaseTime),
+      prize(client.prize),
+      required(client.required),
+      group(client.group),
+      name(duplicate(client.name))
+{
+}
+
+ProblemData::Client::Client(Client &&client)
+    : location(client.location),
+      serviceDuration(client.serviceDuration),
+      twEarly(client.twEarly),
+      twLate(client.twLate),
+      delivery(std::move(client.delivery)),
+      pickup(std::move(client.pickup)),
+      releaseTime(client.releaseTime),
+      prize(client.prize),
+      required(client.required),
+      group(client.group),
+      name(client.name)  // we can steal
+{
+    client.name = nullptr;  // stolen
+}
+
+ProblemData::Client::~Client() { delete[] name; }
+
+bool ProblemData::Client::operator==(Client const &other) const
+{
+    // clang-format off
+    return location == other.location
+        && delivery == other.delivery
+        && pickup == other.pickup
+        && serviceDuration == other.serviceDuration
+        && twEarly == other.twEarly
+        && twLate == other.twLate
+        && releaseTime == other.releaseTime
+        && prize == other.prize
+        && required == other.required
+        && group == other.group
+        && std::strcmp(name, other.name) == 0;
+    // clang-format on
+}
+
+ProblemData::ClientGroup::ClientGroup(std::vector<size_t> clients,
+                                      bool required,
+                                      std::string name)
+    : required(required), name(duplicate(name.data()))
+{
+    for (auto const client : clients)
+        addClient(client);
+}
+
+ProblemData::ClientGroup::ClientGroup(ClientGroup const &group)
+    : clients_(group.clients_),
+      required(group.required),
+      name(duplicate(group.name))
+{
+}
+
+ProblemData::ClientGroup::ClientGroup(ClientGroup &&group)
+    : clients_(std::move(group.clients_)),
+      required(group.required),
+      name(group.name)  // we can steal
+{
+    group.name = nullptr;  // stolen
+}
+
+bool ProblemData::ClientGroup::operator==(ClientGroup const &other) const
+{
+    // clang-format off
+    return clients_ == other.clients_
+        && required == other.required
+        && mutuallyExclusive == other.mutuallyExclusive
+        && std::strcmp(name, other.name) == 0;
+    // clang-format on
+}
+
+ProblemData::ClientGroup::~ClientGroup() { delete[] name; }
+
+bool ProblemData::ClientGroup::empty() const { return clients_.empty(); }
+
+size_t ProblemData::ClientGroup::size() const { return clients_.size(); }
+
+std::vector<size_t>::const_iterator ProblemData::ClientGroup::begin() const
+{
+    return clients_.begin();
+}
+
+std::vector<size_t>::const_iterator ProblemData::ClientGroup::end() const
+{
+    return clients_.end();
+}
+
+std::vector<size_t> const &ProblemData::ClientGroup::clients() const
+{
+    return clients_;
+}
+
+void ProblemData::ClientGroup::addClient(size_t client)
+{
+    if (std::find(clients_.begin(), clients_.end(), client) != clients_.end())
+        throw std::invalid_argument("Client already in group.");
+
+    clients_.push_back(client);
+}
+
+ProblemData::Depot::Depot(size_t location,
+                          Duration twEarly,
+                          Duration twLate,
+                          Duration serviceDuration,
+                          std::string name)
+    : location(location),
+      serviceDuration(serviceDuration),
+      twEarly(twEarly),
+      twLate(twLate),
+      name(duplicate(name.data()))
+{
+    if (serviceDuration < 0)
+        throw std::invalid_argument("service_duration must be >= 0.");
+
+    if (twEarly > twLate)
+        throw std::invalid_argument("tw_early must be <= tw_late.");
+
+    if (twEarly < 0)
+        throw std::invalid_argument("tw_early must be >= 0.");
+}
+
+ProblemData::Depot::Depot(Depot const &depot)
+    : location(depot.location),
+      serviceDuration(depot.serviceDuration),
+      twEarly(depot.twEarly),
+      twLate(depot.twLate),
+      name(duplicate(depot.name))
+{
+}
+
+ProblemData::Depot::Depot(Depot &&depot)
+    : location(depot.location),
+      serviceDuration(depot.serviceDuration),
+      twEarly(depot.twEarly),
+      twLate(depot.twLate),
+      name(depot.name)  // we can steal
+{
+    depot.name = nullptr;  // stolen
+}
+
+ProblemData::Depot::~Depot() { delete[] name; }
+
+bool ProblemData::Depot::operator==(Depot const &other) const
+{
+    // clang-format off
+    return location == other.location
+        && twEarly == other.twEarly
+        && twLate == other.twLate
+        && serviceDuration == other.serviceDuration
+        && std::strcmp(name, other.name) == 0;
+    // clang-format on
+}
+
+ProblemData::VehicleType::VehicleType(size_t numAvailable,
+                                      std::vector<Load> capacity,
+                                      size_t startDepot,
+                                      size_t endDepot,
+                                      Cost fixedCost,
+                                      Duration twEarly,
+                                      Duration twLate,
+                                      Duration shiftDuration,
+                                      Distance maxDistance,
+                                      Cost unitDistanceCost,
+                                      size_t profile,
+                                      std::optional<Duration> startLate,
+                                      std::vector<Load> initialLoad,
+                                      std::vector<size_t> reloadDepots,
+                                      size_t maxReloads,
+                                      Duration maxOvertime,
+                                      VehicleType::DurationCost durationCost,
+                                      std::string name)
+    : numAvailable(numAvailable),
+      startDepot(startDepot),
+      endDepot(endDepot),
+      capacity(pad(capacity, initialLoad)),
+      twEarly(twEarly),
+      twLate(twLate),
+      shiftDuration(shiftDuration),
+      maxDistance(maxDistance),
+      fixedCost(fixedCost),
+      unitDistanceCost(unitDistanceCost),
+      profile(profile),
+      startLate(startLate.value_or(twLate)),
+      initialLoad(pad(initialLoad, capacity)),
+      reloadDepots(reloadDepots),
+      maxReloads(maxReloads),
+      maxOvertime(maxOvertime),
+      // We need to check >= 0 here to avoid overflow. If the arguments are
+      // negative the validation checks further below will raise, so it doesn't
+      // matter what we set as long as we get to those checks.
+      maxDuration(shiftDuration >= 0 && maxOvertime >= 0
+                          && maxOvertime < std::numeric_limits<Duration>::max()
+                                               - shiftDuration
+                      ? shiftDuration + maxOvertime
+                      : std::numeric_limits<Duration>::max()),
+      durationCost(std::move(durationCost)),
+      hasDurationCost(std::any_of(this->durationCost.segments().begin(),
+                                  this->durationCost.segments().end(),
+                                  [](auto const &seg)
+                                  { return seg.first != 0 || seg.second != 0; })
+                      || this->maxDuration
+                             != std::numeric_limits<Duration>::max()),
+      name(duplicate(name.data()))
+{
+    if (numAvailable == 0)
+        throw std::invalid_argument("num_available must be > 0.");
+
+    if (std::any_of(capacity.begin(), capacity.end(), isNegative<Load>))
+        throw std::invalid_argument("capacity amounts must be >= 0.");
+
+    if (twEarly > this->startLate)
+        throw std::invalid_argument("tw_early must be <= start_late.");
+
+    if (this->startLate > twLate)
+        throw std::invalid_argument("start_late must be <= tw_late.");
+
+    if (twEarly < 0)
+        throw std::invalid_argument("tw_early must be >= 0.");
+
+    if (shiftDuration < 0)
+        throw std::invalid_argument("shift_duration must be >= 0.");
+
+    if (maxDistance < 0)
+        throw std::invalid_argument("max_distance must be >= 0.");
+
+    if (fixedCost < 0)
+        throw std::invalid_argument("fixed_cost must be >= 0.");
+
+    if (unitDistanceCost < 0)
+        throw std::invalid_argument("unit_distance_cost must be >= 0.");
+
+    if (std::any_of(initialLoad.begin(), initialLoad.end(), isNegative<Load>))
+        throw std::invalid_argument("initial load amounts must be >= 0.");
+
+    for (size_t dim = 0; dim != initialLoad.size(); ++dim)
+        if (initialLoad[dim] > capacity[dim])
+            throw std::invalid_argument("initial load exceeds capacity.");
+
+    if (maxOvertime < 0)
+        throw std::invalid_argument("max_overtime must be >= 0.");
+
+    if (!this->durationCost.isNonNegative(Duration{0}))
+        throw std::invalid_argument("duration_cost must be non-negative.");
+}
+
+ProblemData::VehicleType::VehicleType(VehicleType const &vehicleType)
+    : numAvailable(vehicleType.numAvailable),
+      startDepot(vehicleType.startDepot),
+      endDepot(vehicleType.endDepot),
+      capacity(vehicleType.capacity),
+      twEarly(vehicleType.twEarly),
+      twLate(vehicleType.twLate),
+      shiftDuration(vehicleType.shiftDuration),
+      maxDistance(vehicleType.maxDistance),
+      fixedCost(vehicleType.fixedCost),
+      unitDistanceCost(vehicleType.unitDistanceCost),
+      profile(vehicleType.profile),
+      startLate(vehicleType.startLate),
+      initialLoad(vehicleType.initialLoad),
+      reloadDepots(vehicleType.reloadDepots),
+      maxReloads(vehicleType.maxReloads),
+      maxOvertime(vehicleType.maxOvertime),
+      maxDuration(vehicleType.maxDuration),
+      durationCost(vehicleType.durationCost),
+      hasDurationCost(vehicleType.hasDurationCost),
+      name(duplicate(vehicleType.name))
+{
+}
+
+ProblemData::VehicleType::VehicleType(VehicleType &&vehicleType)
+    : numAvailable(vehicleType.numAvailable),
+      startDepot(vehicleType.startDepot),
+      endDepot(vehicleType.endDepot),
+      capacity(std::move(vehicleType.capacity)),
+      twEarly(vehicleType.twEarly),
+      twLate(vehicleType.twLate),
+      shiftDuration(vehicleType.shiftDuration),
+      maxDistance(vehicleType.maxDistance),
+      fixedCost(vehicleType.fixedCost),
+      unitDistanceCost(vehicleType.unitDistanceCost),
+      profile(vehicleType.profile),
+      startLate(vehicleType.startLate),
+      initialLoad(std::move(vehicleType.initialLoad)),
+      reloadDepots(std::move(vehicleType.reloadDepots)),
+      maxReloads(vehicleType.maxReloads),
+      maxOvertime(vehicleType.maxOvertime),
+      maxDuration(vehicleType.maxDuration),
+      durationCost(std::move(vehicleType.durationCost)),
+      hasDurationCost(vehicleType.hasDurationCost),
+      name(vehicleType.name)  // we can steal
+{
+    vehicleType.name = nullptr;  // stolen
+}
+
+ProblemData::VehicleType::~VehicleType() { delete[] name; }
+
+ProblemData::VehicleType ProblemData::VehicleType::replace(
+    std::optional<size_t> numAvailable,
+    std::optional<std::vector<Load>> capacity,
+    std::optional<size_t> startDepot,
+    std::optional<size_t> endDepot,
+    std::optional<Cost> fixedCost,
+    std::optional<Duration> twEarly,
+    std::optional<Duration> twLate,
+    std::optional<Duration> shiftDuration,
+    std::optional<Distance> maxDistance,
+    std::optional<Cost> unitDistanceCost,
+    std::optional<size_t> profile,
+    std::optional<Duration> startLate,
+    std::optional<std::vector<Load>> initialLoad,
+    std::optional<std::vector<size_t>> reloadDepots,
+    std::optional<size_t> maxReloads,
+    std::optional<Duration> maxOvertime,
+    std::optional<VehicleType::DurationCost> durationCost,
+    std::optional<std::string> name) const
+{
+    return {numAvailable.value_or(this->numAvailable),
+            capacity.value_or(this->capacity),
+            startDepot.value_or(this->startDepot),
+            endDepot.value_or(this->endDepot),
+            fixedCost.value_or(this->fixedCost),
+            twEarly.value_or(this->twEarly),
+            twLate.value_or(this->twLate),
+            shiftDuration.value_or(this->shiftDuration),
+            maxDistance.value_or(this->maxDistance),
+            unitDistanceCost.value_or(this->unitDistanceCost),
+            profile.value_or(this->profile),
+            startLate.value_or(this->startLate),
+            initialLoad.value_or(this->initialLoad),
+            reloadDepots.value_or(this->reloadDepots),
+            maxReloads.value_or(this->maxReloads),
+            maxOvertime.value_or(this->maxOvertime),
+            durationCost.value_or(this->durationCost),
+            name.value_or(this->name)};
+}
+
+size_t ProblemData::VehicleType::maxTrips() const
+{
+    // When maxReloads is at its maximum size, maxReloads + 1 wraps around to 0,
+    // and then std::max() ensures we still return a reasonable value.
+    return reloadDepots.empty() ? 1 : std::max(maxReloads, maxReloads + 1);
+}
+
+bool ProblemData::VehicleType::operator==(VehicleType const &other) const
+{
+    // clang-format off
+    return numAvailable == other.numAvailable
+        && capacity == other.capacity
+        && startDepot == other.startDepot
+        && endDepot == other.endDepot
+        && fixedCost == other.fixedCost
+        && twEarly == other.twEarly
+        && twLate == other.twLate
+        && shiftDuration == other.shiftDuration
+        && maxDistance == other.maxDistance
+        && unitDistanceCost == other.unitDistanceCost
+        && profile == other.profile
+        && startLate == other.startLate
+        && initialLoad == other.initialLoad
+        && reloadDepots == other.reloadDepots
+        && maxReloads == other.maxReloads
+        && maxOvertime == other.maxOvertime
+        && durationCost == other.durationCost
+        && std::strcmp(name, other.name) == 0;
+    // clang-format on
+}
+
+std::vector<ProblemData::Location> const &ProblemData::locations() const
 {
     return locations_;
 }
