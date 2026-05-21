@@ -186,8 +186,7 @@ struct VehicleType
                 size_t maxReloads = std::numeric_limits<size_t>::max(),
                 Duration maxOvertime = 0,
                 DurationCost durationCost
-                = DurationCost(
-                    {}, {DurationCost::Segment{Cost{0}, Cost{0}}}),
+                = DurationCost({}, {DurationCost::Segment{Cost{0}, Cost{0}}}),
                 std::string name = "");
 
     bool operator==(VehicleType const &other) const;

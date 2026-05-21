@@ -461,7 +461,8 @@ public:
     /**
      * @return The piecewise linear duration cost function for this route.
      */
-    [[nodiscard]] inline VehicleType::DurationCost const &durationCostFn() const;
+    [[nodiscard]] inline VehicleType::DurationCost const &
+    durationCostFn() const;
 
     /**
      * Returns true if this route has duration-related cost components, either

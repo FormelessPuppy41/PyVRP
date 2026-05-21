@@ -407,9 +407,10 @@ PYBIND11_MODULE(_pyvrp, m)
              py::arg("reload_depots") = py::list(),
              py::arg("max_reloads") = std::numeric_limits<size_t>::max(),
              py::arg("max_overtime") = 0,
-             py::arg("duration_cost") = PiecewiseLinearFunction(
-                 {}, {PiecewiseLinearFunction::Segment{pyvrp::Cost{0},
-                                                       pyvrp::Cost{0}}}),
+             py::arg("duration_cost")
+             = PiecewiseLinearFunction({},
+                                       {PiecewiseLinearFunction::Segment{
+                                           pyvrp::Cost{0}, pyvrp::Cost{0}}}),
              py::kw_only(),
              py::arg("name") = "")
         .def_readonly("num_available", &VehicleType::numAvailable)
