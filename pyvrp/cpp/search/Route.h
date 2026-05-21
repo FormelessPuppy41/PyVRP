@@ -25,6 +25,7 @@ concept Segment
           { arg.front() } -> std::convertible_to<SegmentProxy>;
           { arg.back() } -> std::convertible_to<SegmentProxy>;
           { arg.size() } -> std::same_as<size_t>;
+          { arg.numClients() } -> std::same_as<size_t>;
           { arg.startsAtReloadDepot() } -> std::same_as<bool>;
           { arg.endsAtReloadDepot() } -> std::same_as<bool>;
           { arg.distance(profile) } -> std::convertible_to<Distance>;
@@ -94,16 +95,6 @@ public:
     {
         std::tuple<Segments...> segments_;
 
-        /**
-         * Returns the number of activities in the proposed route.
-         */
-        size_t size() const;
-
-        /**
-         * Returns whether the proposed route is empty.
-         */
-        bool empty() const;
-
     public:
         Proposal(Segments &&...segments);
 
@@ -113,6 +104,11 @@ public:
          * used when evaluating the proposal.
          */
         Route const *route() const;
+
+        /**
+         * Returns whether the proposed route is empty.
+         */
+        bool empty() const;
 
         /**
          * Returns the (distance cost, excess distance) attributes of the
@@ -238,6 +234,7 @@ private:
         inline SegmentProxy back() const;   // at end depot
 
         inline size_t size() const;
+        inline size_t numClients() const;
 
         inline bool startsAtReloadDepot() const;
         inline bool endsAtReloadDepot() const;
@@ -264,6 +261,7 @@ private:
         inline SegmentProxy back() const;   // at end
 
         inline size_t size() const;
+        inline size_t numClients() const;
 
         inline bool startsAtReloadDepot() const;
         inline bool endsAtReloadDepot() const;
@@ -292,6 +290,7 @@ private:
         inline SegmentProxy back() const;   // at end
 
         inline size_t size() const;
+        inline size_t numClients() const;
 
         inline bool startsAtReloadDepot() const;
         inline bool endsAtReloadDepot() const;
@@ -304,7 +303,7 @@ private:
 
     ProblemData const &data;
 
-    ProblemData::VehicleType const &vehicleType_;
+    VehicleType const &vehicleType_;
 
     Distance distance_;  // Separately cached cost components
     Cost distanceCost_;
@@ -317,6 +316,8 @@ private:
 
     std::vector<Node *> nodes;      // Nodes in this route
     std::vector<size_t> locations;  // Visited locations in this route
+
+    std::vector<size_t> numClients_;  // Clients on start -> node (incl.)
 
     std::vector<Distance> cumDist;  // Dist of start -> node (incl.)
 
@@ -460,8 +461,7 @@ public:
     /**
      * @return The piecewise linear duration cost function for this route.
      */
-    [[nodiscard]] inline ProblemData::VehicleType::DurationCost const &
-    durationCostFn() const;
+    [[nodiscard]] inline VehicleType::DurationCost const &durationCostFn() const;
 
     /**
      * Returns true if this route has duration-related cost components, either
@@ -755,6 +755,11 @@ SegmentProxy Route::SegmentBefore::back() const
 
 size_t Route::SegmentBefore::size() const { return end + 1; }
 
+size_t Route::SegmentBefore::numClients() const
+{
+    return route_.numClients_[end];
+}
+
 bool Route::SegmentBefore::startsAtReloadDepot() const { return false; }
 
 bool Route::SegmentBefore::endsAtReloadDepot() const
@@ -776,6 +781,14 @@ SegmentProxy Route::SegmentAfter::back() const
 
 size_t Route::SegmentAfter::size() const { return route_.size() - start; }
 
+size_t Route::SegmentAfter::numClients() const
+{
+    // fromStart is (start, end]. So we need to check if start itself is also
+    // a client, and add 1 if it is.
+    auto const fromStart = route_.numClients() - route_.numClients_[start];
+    return fromStart + route_[start]->isClient();
+}
+
 bool Route::SegmentAfter::startsAtReloadDepot() const
 {
     return route_.nodes[start]->isReloadDepot();
@@ -795,6 +808,14 @@ SegmentProxy Route::SegmentBetween::back() const
 }
 
 size_t Route::SegmentBetween::size() const { return end - start + 1; }
+
+size_t Route::SegmentBetween::numClients() const
+{
+    // fromStart is (start, end]. So we need to check if start itself is also
+    // a client, and add 1 if it is.
+    auto const fromStart = route_.numClients_[end] - route_.numClients_[start];
+    return fromStart + route_[start]->isClient();
+}
 
 bool Route::SegmentBetween::startsAtReloadDepot() const
 {
@@ -969,7 +990,7 @@ Cost Route::durationCost() const
     return durationCost_;
 }
 
-ProblemData::VehicleType::DurationCost const &Route::durationCostFn() const
+VehicleType::DurationCost const &Route::durationCostFn() const
 {
     return vehicleType_.durationCost;
 }
@@ -1047,15 +1068,12 @@ Route::Proposal<Segments...>::Proposal(Segments &&...segments)
     assert(last.back().activity() == route[route.size() - 1]->activity());
 }
 
-template <Segment... Segments> size_t Route::Proposal<Segments...>::size() const
-{
-    return std::apply([](auto &&...args) { return (args.size() + ...); },
-                      segments_);
-}
-
 template <Segment... Segments> bool Route::Proposal<Segments...>::empty() const
 {
-    return size() == 2;  // empty if proposal only contains start and end depot
+    auto const numClients = std::apply(
+        [](auto &&...args) { return (args.numClients() + ...); }, segments_);
+
+    return numClients == 0;
 }
 
 template <Segment... Segments>

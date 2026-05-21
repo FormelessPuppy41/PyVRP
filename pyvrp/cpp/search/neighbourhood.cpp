@@ -12,6 +12,7 @@
 using pyvrp::Duration;
 using pyvrp::Matrix;
 using pyvrp::ProblemData;
+using pyvrp::VehicleType;
 using pyvrp::search::NeighbourhoodParams;
 
 namespace
@@ -34,8 +35,7 @@ Matrix<double> computeProximity(ProblemData const &data,
                         data.numClients(),
                         std::numeric_limits<double>::max());
 
-    using Key = std::
-        tuple<pyvrp::Cost, ProblemData::VehicleType::DurationCost, size_t>;
+    using Key = std::tuple<pyvrp::Cost, VehicleType::DurationCost, size_t>;
     std::set<Key> seen = {};
     for (auto const &vehType : data.vehicleTypes())
     {
