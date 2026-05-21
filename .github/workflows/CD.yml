@@ -37,7 +37,7 @@ jobs:
     name: Deploy to PyPI
     needs: [ build ]
     runs-on: ubuntu-24.04
-    if: github.event_name == 'release' && github.event.action == 'created'
+    if: github.event_name == 'release' && github.event.action == 'created' && github.repository == 'PyVRP/PyVRP'
     permissions:
       id-token: write  # for trusted publishing
     steps:
