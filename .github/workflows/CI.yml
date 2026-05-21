@@ -17,6 +17,8 @@ jobs:
       Build and test pyvrp using ${{ matrix.compiler }} 
       ${{ matrix.compiler-version }} and Python ${{ matrix.python-version }}
     runs-on: ubuntu-24.04
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     strategy:
       fail-fast: true
       matrix:
@@ -95,14 +97,14 @@ jobs:
         run: |
           uv run pytest
           uv run ninja coverage-xml -C build
-      - if: ${{ secrets.CODECOV_TOKEN != '' }}
+      - if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
           plugins: pycoverage
           files: build/meson-logs/coverage.xml
-      - if: ${{ secrets.CODECOV_TOKEN == '' }}
+      - if: ${{ env.CODECOV_TOKEN == '' }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: coverage-${{ matrix.compiler }}-${{ matrix.compiler-version }}-py${{ matrix.python-version }}
