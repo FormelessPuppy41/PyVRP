@@ -410,6 +410,145 @@ def test_local_search_removes_useless_reload_depots(ok_small_multiple_trips):
     assert_equal(str(routes[1]), "C1 C3")
 
 
+def test_local_search_uses_edge_demands_in_move_evaluation():
+    """
+    Tests that local-search move evaluation accounts for edge demands when
+    computing capacity penalties.
+    """
+    zeros = np.zeros((4, 4), dtype=int)
+    edge_demands = np.array(
+        [
+            [0, 0, 0, 0],
+            [0, 0, 20, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+        ]
+    )
+
+    data = ProblemData(
+        locations=[
+            Location(0, 0),
+            Location(1, 0),
+            Location(2, 0),
+            Location(3, 0),
+        ],
+        clients=[
+            Client(1, delivery=[0]),
+            Client(2, delivery=[0]),
+            Client(3, delivery=[0]),
+        ],
+        depots=[Depot(0)],
+        vehicle_types=[VehicleType(capacity=[10])],
+        distance_matrices=[zeros],
+        duration_matrices=[zeros],
+        edge_demand_matrices=[[edge_demands]],
+    )
+
+    rng = RandomNumberGenerator(seed=42)
+    ls = LocalSearch(
+        data,
+        rng,
+        [[2], [], [0]],
+        PerturbationManager(PerturbationParams(0, 0)),
+    )
+    ls.add_operator(Exchange11(data))
+
+    # Route C0 -> C1 -> C2 incurs edge demand 20 on C0 -> C1 and is thus
+    # infeasible. Swapping C0 and C2 removes that excess.
+    sol = Solution(data, [[0, 1, 2]])
+    cost_eval = CostEvaluator([1], 0, 0)
+    improved = ls(sol, cost_eval, exhaustive=True)
+
+    assert_(sol.has_excess_load())
+    assert_(not improved.has_excess_load())
+    assert_(not improved.routes()[0].has_excess_load())
+    assert_(cost_eval.penalised_cost(improved) < cost_eval.penalised_cost(sol))
+
+
+def test_local_search_zero_edge_demands_matches_no_edge_demands():
+    """
+    Regression test: adding zero edge-demand matrices must not change local
+    search behaviour compared to instances without edge-demand matrices.
+    """
+    distances = np.array(
+        [
+            [0, 10, 10, 10],
+            [10, 0, 3, 1],
+            [10, 1, 0, 3],
+            [10, 3, 1, 0],
+        ]
+    )
+    durations = np.zeros((4, 4), dtype=int)
+    edge_demands = np.zeros((4, 4), dtype=int)
+
+    kwargs = dict(
+        locations=[
+            Location(0, 0),
+            Location(1, 0),
+            Location(2, 0),
+            Location(3, 0),
+        ],
+        clients=[
+            Client(1, delivery=[0]),
+            Client(2, delivery=[0]),
+            Client(3, delivery=[0]),
+        ],
+        depots=[Depot(0)],
+        vehicle_types=[VehicleType(capacity=[10])],
+        distance_matrices=[distances],
+        duration_matrices=[durations],
+    )
+
+    data_without = ProblemData(**kwargs)
+    data_with_zero = ProblemData(
+        **kwargs, edge_demand_matrices=[[edge_demands]]
+    )
+
+    neighbours = [[1, 2], [0, 2], [0, 1]]
+    ls_without = LocalSearch(
+        data_without,
+        RandomNumberGenerator(seed=42),
+        neighbours,
+        PerturbationManager(PerturbationParams(0, 0)),
+    )
+    ls_with_zero = LocalSearch(
+        data_with_zero,
+        RandomNumberGenerator(seed=42),
+        neighbours,
+        PerturbationManager(PerturbationParams(0, 0)),
+    )
+
+    ls_without.add_operator(Exchange10(data_without))
+    ls_without.add_operator(Exchange11(data_without))
+
+    ls_with_zero.add_operator(Exchange10(data_with_zero))
+    ls_with_zero.add_operator(Exchange11(data_with_zero))
+
+    cost_eval = CostEvaluator([1], 0, 0)
+    init_without = Solution(data_without, [[0, 1, 2]])
+    init_with_zero = Solution(data_with_zero, [[0, 1, 2]])
+
+    improved_without = ls_without(init_without, cost_eval, exhaustive=True)
+    improved_with_zero = ls_with_zero(
+        init_with_zero,
+        cost_eval,
+        exhaustive=True,
+    )
+
+    assert_equal(
+        [str(route) for route in improved_without.routes()],
+        [str(route) for route in improved_with_zero.routes()],
+    )
+    assert_equal(
+        cost_eval.penalised_cost(improved_without),
+        cost_eval.penalised_cost(improved_with_zero),
+    )
+    assert_equal(
+        improved_without.excess_load(),
+        improved_with_zero.excess_load(),
+    )
+
+
 def test_search_statistics(ok_small):
     """
     Tests that the local search's search statistics return meaningful
