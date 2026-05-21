@@ -25,11 +25,13 @@ concept Segment
           { arg.front() } -> std::convertible_to<SegmentProxy>;
           { arg.back() } -> std::convertible_to<SegmentProxy>;
           { arg.size() } -> std::same_as<size_t>;
+          { arg.numClients() } -> std::same_as<size_t>;
           { arg.startsAtReloadDepot() } -> std::same_as<bool>;
           { arg.endsAtReloadDepot() } -> std::same_as<bool>;
           { arg.distance(profile) } -> std::convertible_to<Distance>;
           { arg.duration(profile) } -> std::convertible_to<DurationSegment>;
           { arg.load(dimension) } -> std::convertible_to<LoadSegment>;
+          { arg.activities() } -> std::same_as<std::vector<SegmentProxy>>;
       };
 
 namespace detail
@@ -94,16 +96,6 @@ public:
     {
         std::tuple<Segments...> segments_;
 
-        /**
-         * Returns the number of activities in the proposed route.
-         */
-        size_t size() const;
-
-        /**
-         * Returns whether the proposed route is empty.
-         */
-        bool empty() const;
-
     public:
         Proposal(Segments &&...segments);
 
@@ -113,6 +105,11 @@ public:
          * used when evaluating the proposal.
          */
         Route const *route() const;
+
+        /**
+         * Returns whether the proposed route is empty.
+         */
+        bool empty() const;
 
         /**
          * Returns the (distance cost, excess distance) attributes of the
@@ -238,6 +235,7 @@ private:
         inline SegmentProxy back() const;   // at end depot
 
         inline size_t size() const;
+        inline size_t numClients() const;
 
         inline bool startsAtReloadDepot() const;
         inline bool endsAtReloadDepot() const;
@@ -246,6 +244,7 @@ private:
         inline Distance distance(size_t profile) const;
         inline DurationSegment duration(size_t profile) const;
         inline LoadSegment const &load(size_t dimension) const;
+        inline std::vector<SegmentProxy> activities() const;
     };
 
     /**
@@ -264,6 +263,7 @@ private:
         inline SegmentProxy back() const;   // at end
 
         inline size_t size() const;
+        inline size_t numClients() const;
 
         inline bool startsAtReloadDepot() const;
         inline bool endsAtReloadDepot() const;
@@ -272,6 +272,7 @@ private:
         inline Distance distance(size_t profile) const;
         inline DurationSegment duration(size_t profile) const;
         inline LoadSegment const &load(size_t dimension) const;
+        inline std::vector<SegmentProxy> activities() const;
     };
 
     /**
@@ -292,6 +293,7 @@ private:
         inline SegmentProxy back() const;   // at end
 
         inline size_t size() const;
+        inline size_t numClients() const;
 
         inline bool startsAtReloadDepot() const;
         inline bool endsAtReloadDepot() const;
@@ -300,11 +302,12 @@ private:
         inline Distance distance(size_t profile) const;
         inline DurationSegment duration(size_t profile) const;
         inline LoadSegment load(size_t dimension) const;
+        inline std::vector<SegmentProxy> activities() const;
     };
 
     ProblemData const &data;
 
-    ProblemData::VehicleType const &vehicleType_;
+    VehicleType const &vehicleType_;
 
     Distance distance_;  // Separately cached cost components
     Cost distanceCost_;
@@ -317,6 +320,8 @@ private:
 
     std::vector<Node *> nodes;      // Nodes in this route
     std::vector<size_t> locations;  // Visited locations in this route
+
+    std::vector<size_t> numClients_;  // Clients on start -> node (incl.)
 
     std::vector<Distance> cumDist;  // Dist of start -> node (incl.)
 
@@ -723,6 +728,18 @@ LoadSegment const &Route::SegmentAfter::load(size_t dimension) const
     return route_.loadAfter[dimension][start];
 }
 
+std::vector<SegmentProxy> Route::SegmentAfter::activities() const
+{
+    std::vector<SegmentProxy> activities;
+    activities.reserve(size());
+
+    for (size_t idx = start; idx != route_.size(); ++idx)
+        activities.emplace_back(route_.nodes[idx]->activity(),
+                                route_.locations[idx]);
+
+    return activities;
+}
+
 Distance Route::SegmentBefore::distance([[maybe_unused]] size_t profile) const
 {
     assert(profile == route_.profile());
@@ -741,6 +758,18 @@ LoadSegment const &Route::SegmentBefore::load(size_t dimension) const
     return route_.loadBefore[dimension][end];
 }
 
+std::vector<SegmentProxy> Route::SegmentBefore::activities() const
+{
+    std::vector<SegmentProxy> activities;
+    activities.reserve(size());
+
+    for (size_t idx = 0; idx != end + 1; ++idx)
+        activities.emplace_back(route_.nodes[idx]->activity(),
+                                route_.locations[idx]);
+
+    return activities;
+}
+
 Route const *Route::SegmentBefore::route() const { return &route_; }
 
 SegmentProxy Route::SegmentBefore::front() const
@@ -754,6 +783,11 @@ SegmentProxy Route::SegmentBefore::back() const
 }
 
 size_t Route::SegmentBefore::size() const { return end + 1; }
+
+size_t Route::SegmentBefore::numClients() const
+{
+    return route_.numClients_[end];
+}
 
 bool Route::SegmentBefore::startsAtReloadDepot() const { return false; }
 
@@ -776,6 +810,14 @@ SegmentProxy Route::SegmentAfter::back() const
 
 size_t Route::SegmentAfter::size() const { return route_.size() - start; }
 
+size_t Route::SegmentAfter::numClients() const
+{
+    // fromStart is (start, end]. So we need to check if start itself is also
+    // a client, and add 1 if it is.
+    auto const fromStart = route_.numClients() - route_.numClients_[start];
+    return fromStart + route_[start]->isClient();
+}
+
 bool Route::SegmentAfter::startsAtReloadDepot() const
 {
     return route_.nodes[start]->isReloadDepot();
@@ -795,6 +837,14 @@ SegmentProxy Route::SegmentBetween::back() const
 }
 
 size_t Route::SegmentBetween::size() const { return end - start + 1; }
+
+size_t Route::SegmentBetween::numClients() const
+{
+    // fromStart is (start, end]. So we need to check if start itself is also
+    // a client, and add 1 if it is.
+    auto const fromStart = route_.numClients_[end] - route_.numClients_[start];
+    return fromStart + route_[start]->isClient();
+}
 
 bool Route::SegmentBetween::startsAtReloadDepot() const
 {
@@ -862,6 +912,18 @@ LoadSegment Route::SegmentBetween::load(size_t dimension) const
         loadSegment = LoadSegment::merge(loadSegment, loads[step + 1]);
 
     return loadSegment;
+}
+
+std::vector<SegmentProxy> Route::SegmentBetween::activities() const
+{
+    std::vector<SegmentProxy> activities;
+    activities.reserve(size());
+
+    for (size_t idx = start; idx != end + 1; ++idx)
+        activities.emplace_back(route_.nodes[idx]->activity(),
+                                route_.locations[idx]);
+
+    return activities;
 }
 
 bool Route::isFeasible() const
@@ -1047,15 +1109,12 @@ Route::Proposal<Segments...>::Proposal(Segments &&...segments)
     assert(last.back().activity() == route[route.size() - 1]->activity());
 }
 
-template <Segment... Segments> size_t Route::Proposal<Segments...>::size() const
-{
-    return std::apply([](auto &&...args) { return (args.size() + ...); },
-                      segments_);
-}
-
 template <Segment... Segments> bool Route::Proposal<Segments...>::empty() const
 {
-    return size() == 2;  // empty if proposal only contains start and end depot
+    auto const numClients = std::apply(
+        [](auto &&...args) { return (args.numClients() + ...); }, segments_);
+
+    return numClients == 0;
 }
 
 template <Segment... Segments>
@@ -1176,6 +1235,59 @@ Load Route::Proposal<Segments...>::excessLoad(size_t dimension) const
 {
     if (empty())
         return 0;
+
+    if (route()->data.hasEdgeDemands())
+    {
+        auto const &data = route()->data;
+        auto const profile = route()->profile();
+        auto const &edgeDemands = data.edgeDemandMatrix(profile, dimension);
+        auto const capacity = route()->capacity()[dimension];
+        auto const initialLoad
+            = data.vehicleType(route()->vehicleType()).initialLoad[dimension];
+
+        std::vector<SegmentProxy> activities;
+        auto append = [&](auto &&segment)
+        {
+            auto segmentActivities = segment.activities();
+            activities.insert(activities.end(),
+                              segmentActivities.begin(),
+                              segmentActivities.end());
+        };
+        std::apply([&](auto &&...segs) { (append(segs), ...); }, segments_);
+
+        LoadSegment ls;
+        if (initialLoad > 0)
+            ls = {data.vehicleType(route()->vehicleType()), dimension};
+
+        Load edgeDemand = 0;
+        Load excess = 0;
+        auto tripExcess = std::max<Load>(ls.load() + edgeDemand - capacity, 0);
+
+        for (size_t idx = 1; idx != activities.size(); ++idx)
+        {
+            auto const &frm = activities[idx - 1];
+            auto const &to = activities[idx];
+            edgeDemand += edgeDemands(frm.location(), to.location());
+
+            auto const activity = to.activity();
+            if (activity.isClient())
+                ls = LoadSegment::merge(
+                    ls, {data.client(activity.idx()), dimension});
+
+            tripExcess = std::max<Load>(
+                tripExcess,
+                std::max<Load>(ls.load() + edgeDemand - capacity, 0));
+
+            if (activity.isDepot())
+            {
+                excess += tripExcess;
+                ls = {};
+                tripExcess = std::max<Load>(edgeDemand - capacity, 0);
+            }
+        }
+
+        return excess;
+    }
 
     auto const &capacities = route()->capacity();
     auto const capacity = capacities[dimension];

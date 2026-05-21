@@ -6,6 +6,7 @@ import pytest
 from numpy.testing import assert_, assert_allclose, assert_equal, assert_raises
 
 from pyvrp import (
+    Activity,
     Client,
     ClientGroup,
     Depot,
@@ -407,6 +408,82 @@ def test_excess_load_calculation_with_multiple_load_dimensions(
 
     assert_(solution.has_excess_load())
     assert_equal(solution.excess_load(), expected_excess_load)
+
+
+def test_excess_load_includes_edge_demands():
+    """
+    Tests that edge demand consumption contributes to solution excess load.
+    """
+    zeros = np.zeros((2, 2), dtype=int)
+    edge_demands = np.array([[0, 3], [4, 0]])
+
+    data = ProblemData(
+        locations=[Location(0, 0), Location(1, 0)],
+        clients=[Client(1, delivery=[5])],
+        depots=[Depot(0)],
+        vehicle_types=[VehicleType(capacity=[10])],
+        distance_matrices=[zeros],
+        duration_matrices=[zeros],
+        edge_demand_matrices=[[edge_demands]],
+    )
+
+    solution = Solution(data, [[0]])
+    assert_(solution.has_excess_load())
+    assert_equal(solution.excess_load(), [2])  # 5 + (3 + 4) - 10
+
+
+def test_excess_load_uses_profile_specific_edge_demands():
+    """
+    Tests that profile-specific edge demands are used in solution excess load.
+    """
+    zeros = np.zeros((4, 4), dtype=int)
+    edge_demands_profile0 = np.array(
+        [
+            [0, 5, 0, 0],
+            [0, 0, 7, 0],
+            [11, 0, 0, 0],
+            [0, 0, 0, 0],
+        ]
+    )
+    edge_demands_profile1 = np.array(
+        [
+            [0, 0, 0, 2],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [3, 0, 0, 0],
+        ]
+    )
+
+    data = ProblemData(
+        locations=[
+            Location(0, 0),
+            Location(1, 0),
+            Location(2, 0),
+            Location(3, 0),
+        ],
+        clients=[
+            Client(1, delivery=[0]),
+            Client(2, delivery=[0]),
+            Client(3, delivery=[0]),
+        ],
+        depots=[Depot(0)],
+        vehicle_types=[
+            VehicleType(capacity=[15], profile=0),
+            VehicleType(capacity=[15], profile=1),
+        ],
+        distance_matrices=[zeros, zeros],
+        duration_matrices=[zeros, zeros],
+        edge_demand_matrices=[
+            [edge_demands_profile0],
+            [edge_demands_profile1],
+        ],
+    )
+
+    # Route [C0, C1] with profile 0 has excess 8, route [C2] with profile 1
+    # has no excess.
+    solution = Solution(data, [Route(data, [0, 1], 0), Route(data, [2], 1)])
+    assert_equal(solution.excess_load(), [8])
+    assert_(solution.has_excess_load())
 
 
 @pytest.mark.parametrize(
@@ -887,3 +964,20 @@ def test_make_random(ok_small_mutually_exclusive_groups, gtsp):
         rng = RandomNumberGenerator(seed=seed)
         sol = Solution.make_random(gtsp, rng)
         assert_(sol.is_complete())
+
+
+@pytest.mark.parametrize(
+    ("visits", "unplanned"),
+    [
+        ([0, 1], [Activity("C2"), Activity("C3")]),
+        ([1, 2], [Activity("C0"), Activity("C3")]),
+        ([0, 1, 2, 3], []),
+    ],
+)
+def test_unplanned(ok_small, visits: list[int], unplanned: list[Activity]):
+    """
+    Tests that the unplanned() method returns the correct unplanned activities.
+    """
+    sol = Solution(ok_small, [visits])
+    assert_equal(sol.num_missing_clients(), len(unplanned))  # all required
+    assert_equal(sol.unplanned(), unplanned)

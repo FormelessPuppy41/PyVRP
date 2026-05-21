@@ -5,37 +5,21 @@
 #include <numeric>
 #include <stdexcept>
 
+using pyvrp::Client;
+using pyvrp::ClientGroup;
 using pyvrp::Cost;
+using pyvrp::Depot;
 using pyvrp::Distance;
 using pyvrp::Duration;
 using pyvrp::Load;
+using pyvrp::Location;
 using pyvrp::Matrix;
 using pyvrp::PiecewiseLinearFunction;
 using pyvrp::ProblemData;
+using pyvrp::VehicleType;
 
 namespace
 {
-// Small local helper for what is essentially strdup() from the C23 standard,
-// which my compiler does not (yet) have. See here for the actual recipe:
-// https://stackoverflow.com/a/252802/4316405 (modified to use new instead of
-// malloc). We do all this so we can use C-style strings, rather than C++'s
-// std::string, which are much larger objects.
-static char *duplicate(char const *src)
-{
-    char *dst = new char[std::strlen(src) + 1];  // space for src + null
-    std::strcpy(dst, src);
-    return dst;
-}
-
-// Pad vec1 with zeroes to the size of vec1 and vec2, whichever is larger.
-auto &pad(auto &vec1, auto const &vec2)
-{
-    vec1.resize(std::max(vec1.size(), vec2.size()));
-    return vec1;
-}
-
-bool isNegative(auto value) { return value < 0; }
-
 // Small helper that determines if the time windows of a and b overlap.
 bool hasTimeOverlap(auto const &a, auto const &b)
 {
@@ -513,22 +497,13 @@ std::vector<ProblemData::Location> const &ProblemData::locations() const
     return locations_;
 }
 
-std::vector<ProblemData::Client> const &ProblemData::clients() const
-{
-    return clients_;
-}
+std::vector<Client> const &ProblemData::clients() const { return clients_; }
 
-std::vector<ProblemData::Depot> const &ProblemData::depots() const
-{
-    return depots_;
-}
+std::vector<Depot> const &ProblemData::depots() const { return depots_; }
 
-std::vector<ProblemData::ClientGroup> const &ProblemData::groups() const
-{
-    return groups_;
-}
+std::vector<ClientGroup> const &ProblemData::groups() const { return groups_; }
 
-std::vector<ProblemData::VehicleType> const &ProblemData::vehicleTypes() const
+std::vector<VehicleType> const &ProblemData::vehicleTypes() const
 {
     return vehicleTypes_;
 }
@@ -543,20 +518,25 @@ std::vector<Matrix<Duration>> const &ProblemData::durationMatrices() const
     return durs_;
 }
 
-ProblemData::Location const &ProblemData::location(size_t location) const
+std::vector<std::vector<Matrix<Load>>> const &
+ProblemData::edgeDemandMatrices() const
+{
+    return edgeDemands_;
+}
+
+Location const &ProblemData::location(size_t location) const
 {
     assert(location < numLocations());
     return locations_[location];
 }
 
-ProblemData::ClientGroup const &ProblemData::group(size_t group) const
+ClientGroup const &ProblemData::group(size_t group) const
 {
     assert(group < groups_.size());
     return groups_[group];
 }
 
-ProblemData::VehicleType const &
-ProblemData::vehicleType(size_t vehicleType) const
+VehicleType const &ProblemData::vehicleType(size_t vehicleType) const
 {
     assert(vehicleType < vehicleTypes_.size());
     return vehicleTypes_[vehicleType];
@@ -722,16 +702,56 @@ void ProblemData::validate() const
                                             "all zero.");
         }
     }
+
+    if (edgeDemands_.empty())
+        return;
+
+    if (edgeDemands_.size() != numProfiles())
+        throw std::invalid_argument("Inconsistent number of edge demand "
+                                    "matrix profiles.");
+
+    for (size_t profile = 0; profile != edgeDemands_.size(); ++profile)
+    {
+        auto const &edgeDemands = edgeDemands_[profile];
+        auto const numLocs = numLocations();
+
+        if (edgeDemands.size() != numLoadDimensions_)
+            throw std::invalid_argument("Edge demand matrix dimensions do not "
+                                        "match the number of load dimensions.");
+
+        for (auto const &edgeDemand : edgeDemands)
+        {
+            if (edgeDemand.numRows() != numLocs
+                || edgeDemand.numCols() != numLocs)
+            {
+                throw std::invalid_argument("Edge demand matrix shape does not "
+                                            "match the problem size.");
+            }
+
+            for (size_t frm = 0; frm != numLocs; ++frm)
+            {
+                if (edgeDemand(frm, frm) != 0)
+                    throw std::invalid_argument("Edge demand matrix diagonals "
+                                                "must be all zero.");
+
+                for (size_t to = 0; to != numLocs; ++to)
+                    if (edgeDemand(frm, to) < 0)
+                        throw std::invalid_argument(
+                            "Edge demands must be >= 0.");
+            }
+        }
+    }
 }
 
-ProblemData
-ProblemData::replace(std::optional<std::vector<Location>> &locations,
-                     std::optional<std::vector<Client>> &clients,
-                     std::optional<std::vector<Depot>> &depots,
-                     std::optional<std::vector<VehicleType>> &vehicleTypes,
-                     std::optional<std::vector<Matrix<Distance>>> &distMats,
-                     std::optional<std::vector<Matrix<Duration>>> &durMats,
-                     std::optional<std::vector<ClientGroup>> &groups) const
+ProblemData ProblemData::replace(
+    std::optional<std::vector<Location>> &locations,
+    std::optional<std::vector<Client>> &clients,
+    std::optional<std::vector<Depot>> &depots,
+    std::optional<std::vector<VehicleType>> &vehicleTypes,
+    std::optional<std::vector<Matrix<Distance>>> &distMats,
+    std::optional<std::vector<Matrix<Duration>>> &durMats,
+    std::optional<std::vector<ClientGroup>> &groups,
+    std::optional<std::vector<std::vector<Matrix<Load>>>> &edgeDemandMats) const
 {
     return {locations.value_or(locations_),
             clients.value_or(clients_),
@@ -739,7 +759,8 @@ ProblemData::replace(std::optional<std::vector<Location>> &locations,
             vehicleTypes.value_or(vehicleTypes_),
             distMats.value_or(dists_),
             durMats.value_or(durs_),
-            groups.value_or(groups_)};
+            groups.value_or(groups_),
+            edgeDemandMats.value_or(edgeDemands_)};
 }
 
 ProblemData::ProblemData(std::vector<Location> locations,
@@ -748,9 +769,11 @@ ProblemData::ProblemData(std::vector<Location> locations,
                          std::vector<VehicleType> vehicleTypes,
                          std::vector<Matrix<Distance>> distMats,
                          std::vector<Matrix<Duration>> durMats,
-                         std::vector<ClientGroup> groups)
+                         std::vector<ClientGroup> groups,
+                         std::vector<std::vector<Matrix<Load>>> edgeDemandMats)
     : dists_(std::move(distMats)),
       durs_(std::move(durMats)),
+      edgeDemands_(std::move(edgeDemandMats)),
       locations_(std::move(locations)),
       clients_(std::move(clients)),
       depots_(std::move(depots)),
@@ -774,7 +797,8 @@ ProblemData::ProblemData(std::vector<Location> locations,
           || std::any_of(depots_.begin(), depots_.end(), hasTimeWindow<Depot>)
           || std::any_of(vehicleTypes_.begin(),
                          vehicleTypes_.end(),
-                         hasTimeWindow<VehicleType>))
+                         hasTimeWindow<VehicleType>)),
+      hasEdgeDemands_(!edgeDemands_.empty())
 {
     validate();
 }

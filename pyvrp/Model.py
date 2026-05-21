@@ -32,10 +32,11 @@ class Edge:
     ------
     ValueError
         When either distance or duration is a negative value, or when self
-        loops have nonzero distance or duration values.
+        loops have nonzero distance, duration, or edge demand values, or when
+        edge demands contain negative values.
     """
 
-    __slots__ = ["distance", "duration", "frm", "to"]
+    __slots__ = ["distance", "duration", "edge_demands", "frm", "to"]
 
     def __init__(
         self,
@@ -43,12 +44,20 @@ class Edge:
         to: Location,
         distance: int,
         duration: int,
+        edge_demands: Sequence[int] | None = None,
     ):
         if distance < 0 or duration < 0:
             raise ValueError("Cannot have negative edge distance or duration.")
 
         if id(frm) == id(to) and (distance != 0 or duration != 0):
             raise ValueError("A self loop must have 0 distance and duration.")
+
+        if (
+            id(frm) == id(to)
+            and edge_demands is not None
+            and any(edge_demands)
+        ):
+            raise ValueError("A self loop must have 0 edge demands.")
 
         if max(distance, duration) > MAX_VALUE:
             msg = """
@@ -57,10 +66,18 @@ class Edge:
             """
             warn(msg, ScalingWarning)
 
+        if edge_demands is not None and any(
+            demand < 0 for demand in edge_demands
+        ):
+            raise ValueError("Edge demands must be >= 0.")
+
         self.frm = frm
         self.to = to
         self.distance = distance
         self.duration = duration
+        self.edge_demands = (
+            list(edge_demands) if edge_demands is not None else None
+        )
 
 
 class Profile:
@@ -87,11 +104,12 @@ class Profile:
         to: Location,
         distance: int,
         duration: int = 0,
+        edge_demands: Sequence[int] | None = None,
     ) -> Edge:
         """
         Adds a new edge to this routing profile.
         """
-        edge = Edge(frm, to, distance, duration)
+        edge = Edge(frm, to, distance, duration, edge_demands)
         self.edges.append(edge)
         return edge
 
@@ -183,6 +201,10 @@ class Model:
         clients = data.clients()
 
         profiles = [Profile() for _ in range(data.num_profiles)]
+        edge_demand_mats = (
+            data.edge_demand_matrices() if data.has_edge_demands() else None
+        )
+
         for idx, profile in enumerate(profiles):
             distances = data.distance_matrix(profile=idx)
             durations = data.duration_matrix(profile=idx)
@@ -192,6 +214,11 @@ class Model:
                     to=locs[to],
                     distance=distances[frm, to],
                     duration=durations[frm, to],
+                    edge_demands=(
+                        [mats[frm, to] for mats in edge_demand_mats[idx]]
+                        if edge_demand_mats is not None
+                        else None
+                    ),
                 )
                 for frm in range(data.num_locations)
                 for to in range(data.num_locations)
@@ -336,12 +363,17 @@ class Model:
         distance: int,
         duration: int = 0,
         profile: Profile | None = None,
+        edge_demands: Sequence[int] | None = None,
     ) -> Edge:
         """
         Adds an edge :math:`(i, j)` between ``frm`` (:math:`i`) and ``to``
         (:math:`j`). The edge can be given distance and duration attributes.
-        Distance is required, but the default duration is zero. Returns the
-        created edge.
+        Distance is required, but the default duration is zero. Optionally, the
+        edge can also store ``edge_demands``. Returns the created edge.
+
+        Edge demands represent directed, non-negative resource consumption on
+        arc traversals. When used, all edges that specify ``edge_demands``
+        should use the same number of demand dimensions.
 
         .. note::
 
@@ -355,11 +387,23 @@ class Model:
            If called repeatedly with the same ``frm``, ``to``, and ``profile``
            arguments, only the edge constructed last is used. PyVRP does not
            support multigraphs.
+
+        .. note::
+
+           Edge demands contribute to route capacity consumption together with
+           client pickup/delivery demands. They are not route costs by
+           themselves.
         """
         if profile is not None:
-            return profile.add_edge(frm, to, distance, duration)
+            return profile.add_edge(frm, to, distance, duration, edge_demands)
 
-        edge = Edge(frm=frm, to=to, distance=distance, duration=duration)
+        edge = Edge(
+            frm=frm,
+            to=to,
+            distance=distance,
+            duration=duration,
+            edge_demands=edge_demands,
+        )
         self._edges.append(edge)
         return edge
 
@@ -520,6 +564,54 @@ class Model:
             distances = [base_distance]
             durations = [base_duration]
 
+        edge_demand_dims: int | None = None
+        all_edges = [
+            *self._edges,
+            *(edge for profile in self._profiles for edge in profile.edges),
+        ]
+        for edge in all_edges:
+            if edge.edge_demands is None:
+                continue
+
+            edge_dims = len(edge.edge_demands)
+            if edge_demand_dims is None:
+                edge_demand_dims = edge_dims
+            elif edge_dims != edge_demand_dims:
+                raise ValueError("Edge demands must all have equal dimension.")
+
+        edge_demand_matrices: list[list[np.ndarray]] = []
+        if edge_demand_dims is not None:
+            base_edge_demand = [
+                np.zeros((len(locs), len(locs)), np.int64)
+                for _ in range(edge_demand_dims)
+            ]
+
+            for edge in self._edges:
+                if edge.edge_demands is None:
+                    continue
+
+                frm = loc2idx[id(edge.frm)]
+                to = loc2idx[id(edge.to)]
+                for dim, demand in enumerate(edge.edge_demands):
+                    base_edge_demand[dim][frm, to] = demand
+
+            for profile in self._profiles:
+                prof_edge_demand = [mat.copy() for mat in base_edge_demand]
+
+                for edge in profile.edges:
+                    if edge.edge_demands is None:
+                        continue
+
+                    frm = loc2idx[id(edge.frm)]
+                    to = loc2idx[id(edge.to)]
+                    for dim, demand in enumerate(edge.edge_demands):
+                        prof_edge_demand[dim][frm, to] = demand
+
+                edge_demand_matrices.append(prof_edge_demand)
+
+            if not self._profiles:
+                edge_demand_matrices = [base_edge_demand]
+
         return ProblemData(
             self._locations,
             self._clients,
@@ -528,6 +620,7 @@ class Model:
             distances,
             durations,
             self._groups,
+            edge_demand_matrices,
         )
 
     def solve(

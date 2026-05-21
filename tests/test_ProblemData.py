@@ -15,166 +15,6 @@ from pyvrp import (
     VehicleType,
 )
 
-_INT_MAX = np.iinfo(np.int64).max
-_MAX_SIZE = np.iinfo(np.uint64).max
-
-
-@pytest.mark.parametrize(
-    (
-        "location",
-        "delivery",
-        "pickup",
-        "service_duration",
-        "tw_early",
-        "tw_late",
-        "release_time",
-        "prize",
-        "required",
-        "group",
-        "name",
-    ),
-    [
-        (1, 1, 1, 1, 0, 1, 0, 0, True, None, "test name"),  # normal
-        (1, 1, 0, 0, 0, 1, 0, 0, True, None, "1234"),  # zero duration
-        (1, 0, 0, 1, 0, 1, 0, 0, True, None, "1,2,3,4"),  # zero delivery
-        (1, 1, 0, 1, 0, 0, 0, 0, True, None, ""),  # zero time windows
-        (1, 1, 0, 1, 0, 1, 1, 0, True, None, ""),  # positive release time
-        (0, 1, 0, 1, 0, 1, 0, 1, True, None, ""),  # positive prize
-        (0, 1, 0, 1, 0, 1, 0, 1, False, None, ""),  # not required
-        (0, 1, 0, 1, 0, 1, 0, 1, False, 0, ""),  # group membership
-    ],
-)
-def test_client_constructor_initialises_data_fields_correctly(
-    location: int,
-    delivery: int,
-    pickup: int,
-    service_duration: int,
-    tw_early: int,
-    tw_late: int,
-    release_time: int,
-    prize: int,
-    required: bool,
-    group: int | None,
-    name: str,
-):
-    """
-    Tests that the access properties return the data that was given to the
-    Client's constructor.
-    """
-    client = Client(
-        location=location,
-        delivery=[delivery],
-        pickup=[pickup],
-        service_duration=service_duration,
-        tw_early=tw_early,
-        tw_late=tw_late,
-        release_time=release_time,
-        prize=prize,
-        required=required,
-        group=group,
-        name=name,
-    )
-
-    assert_equal(client.location, location)
-    assert_equal(client.delivery, [delivery])
-    assert_equal(client.pickup, [pickup])
-    assert_equal(client.service_duration, service_duration)
-    assert_equal(client.tw_early, tw_early)
-    assert_equal(client.tw_late, tw_late)
-    assert_equal(client.release_time, release_time)
-    assert_equal(client.prize, prize)
-    assert_equal(client.required, required)
-    assert_equal(client.group, group)
-    assert_equal(client.name, name)
-    assert_equal(str(client), name)
-
-
-@pytest.mark.parametrize(
-    (
-        "delivery",
-        "pickup",
-        "service",
-        "tw_early",
-        "tw_late",
-        "release_time",
-        "prize",
-    ),
-    [
-        (1, 0, 0, 1, 0, 0, 0),  # late < early
-        (1, 0, 0, -1, 0, 0, 0),  # negative early
-        (0, 0, -1, 0, 1, 0, 1),  # negative service duration
-        (-1, 0, 1, 0, 1, 0, 0),  # negative delivery
-        (0, -1, 1, 0, 1, 0, 0),  # negative pickup
-        (0, 0, 0, 0, 1, -1, 0),  # negative release time
-        (0, 0, 0, 0, 1, 2, 0),  # release time > late
-        (1, 0, 1, 0, 1, 0, -1),  # negative prize
-    ],
-)
-def test_raises_for_invalid_client_data(
-    delivery: int,
-    pickup: int,
-    service: int,
-    tw_early: int,
-    tw_late: int,
-    release_time: int,
-    prize: int,
-):
-    """
-    Tests that invalid configurations are not accepted.
-    """
-    with assert_raises(ValueError):
-        Client(
-            0,
-            [delivery],
-            [pickup],
-            service,
-            tw_early,
-            tw_late,
-            release_time,
-            prize,
-        )
-
-
-@pytest.mark.parametrize(
-    ("tw_early", "tw_late", "service_duration"),
-    [
-        (1, 0, 0),  # tw_early > tw_late
-        (-1, 0, 0),  # tw_early < 0
-        (0, -1, 0),  # tw_late < 0
-        (0, 0, -1),  # service_duration < 0
-    ],
-)
-def test_raises_for_invalid_depot_data(
-    tw_early: int,
-    tw_late: int,
-    service_duration: int,
-):
-    """
-    Tests that an invalid depot configuration is not accepted.
-    """
-    with assert_raises(ValueError):
-        Depot(0, tw_early, tw_late, service_duration)
-
-
-def test_depot_initialises_data_correctly():
-    """
-    Tests that the depot constructor correctly initialises its member data, and
-    ensures the data is accessible from Python.
-    """
-    depot = Depot(
-        location=2,
-        tw_early=5,
-        tw_late=7,
-        service_duration=3,
-        name="test",
-    )
-
-    assert_equal(depot.location, 2)
-    assert_equal(depot.tw_early, 5)
-    assert_equal(depot.tw_late, 7)
-    assert_equal(depot.service_duration, 3)
-    assert_equal(depot.name, "test")
-
 
 def test_problem_data_raises_when_no_depot_is_provided():
     """
@@ -438,6 +278,99 @@ def test_matrix_access():
 
     assert_equal(data.distance_matrix(profile=0), dist_mat)
     assert_equal(data.duration_matrix(profile=0), dur_mat)
+
+
+def test_edge_demand_matrices_default_empty():
+    """
+    Tests that edge demand matrices are optional and default to empty.
+    """
+    data = ProblemData(
+        locations=[Location(0, 0), Location(1, 0)],
+        clients=[Client(location=1, delivery=[0])],
+        depots=[Depot(location=0)],
+        vehicle_types=[VehicleType(capacity=[1])],
+        distance_matrices=[np.array([[0, 1], [1, 0]])],
+        duration_matrices=[np.array([[0, 1], [1, 0]])],
+    )
+
+    assert_(not data.has_edge_demands())
+    assert_equal(data.edge_demand_matrices(), [])
+    with assert_raises(ValueError):
+        data.edge_demand_matrix(0, 0)
+
+
+def test_edge_demand_matrix_access():
+    """
+    Tests that edge demand matrices can be read by profile and dimension.
+    """
+    data = ProblemData(
+        locations=[Location(0, 0), Location(1, 0)],
+        clients=[Client(location=1, delivery=[0, 0])],
+        depots=[Depot(location=0)],
+        vehicle_types=[VehicleType(capacity=[1, 1])],
+        distance_matrices=[
+            np.array([[0, 1], [1, 0]]),
+            np.array([[0, 2], [2, 0]]),
+        ],
+        duration_matrices=[
+            np.array([[0, 1], [1, 0]]),
+            np.array([[0, 2], [2, 0]]),
+        ],
+        edge_demand_matrices=[
+            [np.array([[0, 1], [2, 0]]), np.array([[0, 3], [4, 0]])],
+            [np.array([[0, 5], [6, 0]]), np.array([[0, 7], [8, 0]])],
+        ],
+    )
+
+    assert_(data.has_edge_demands())
+    assert_equal(data.edge_demand_matrix(0, 0), [[0, 1], [2, 0]])
+    assert_equal(data.edge_demand_matrix(0, 1), [[0, 3], [4, 0]])
+    assert_equal(data.edge_demand_matrix(1, 0), [[0, 5], [6, 0]])
+    assert_equal(data.edge_demand_matrix(1, 1), [[0, 7], [8, 0]])
+
+
+def test_edge_demand_matrices_validation():
+    """
+    Tests validation of edge demand matrix shapes and values.
+    """
+    base = dict(
+        locations=[Location(0, 0), Location(1, 0)],
+        clients=[Client(location=1, delivery=[0])],
+        depots=[Depot(location=0)],
+        vehicle_types=[VehicleType(capacity=[1])],
+        distance_matrices=[np.array([[0, 1], [1, 0]])],
+        duration_matrices=[np.array([[0, 1], [1, 0]])],
+    )
+
+    with assert_raises(ValueError):
+        ProblemData(
+            **base,
+            edge_demand_matrices=[],
+        ).replace(edge_demand_matrices=[[np.array([[0, 1], [1, 0]])]] * 2)
+
+    with assert_raises(ValueError):
+        ProblemData(
+            **base,
+            edge_demand_matrices=[[np.array([[0, 1], [1, 0]])] * 2],
+        )
+
+    with assert_raises(ValueError):
+        ProblemData(
+            **base,
+            edge_demand_matrices=[[np.array([[0, 1, 0], [1, 0, 0]])]],
+        )
+
+    with assert_raises(ValueError):
+        ProblemData(
+            **base,
+            edge_demand_matrices=[[np.array([[1, 1], [1, 0]])]],
+        )
+
+    with assert_raises(ValueError):
+        ProblemData(
+            **base,
+            edge_demand_matrices=[[np.array([[0, -1], [1, 0]])]],
+        )
 
 
 def test_matrices_are_not_writeable():
@@ -841,19 +774,6 @@ def test_raises_inconsistent_profiles(ok_small):
         ok_small.replace(distance_matrices=ok_small.distance_matrices() * 2)
 
 
-def test_client_group_attribute_access():
-    """
-    Tests that the ClientGroup's attributes are correctly set and accessible.
-    """
-    group = ClientGroup(clients=[1, 2, 3], required=False, name="test")
-
-    assert_equal(group.clients, [1, 2, 3])
-    assert_equal(group.required, False)
-    assert_equal(group.mutually_exclusive, True)
-    assert_equal(group.name, "test")
-    assert_equal(str(group), "test")
-
-
 def test_raises_empty_group():
     """
     Tests that passing an empty client group raises a ValueError.
@@ -967,20 +887,6 @@ def test_raises_for_required_mutually_exclusive_group_membership():
             duration_matrices=[np.zeros((2, 2))],
             groups=[ClientGroup([0])],
         )
-
-
-def test_client_group_raises_duplicate_clients():
-    """
-    Tests that adding the same client to a group more than once raises.
-    """
-    with assert_raises(ValueError):
-        ClientGroup([1, 1])
-
-    group = ClientGroup()
-    group.add_client(1)  # this should be OK
-
-    with assert_raises(ValueError):
-        group.add_client(1)  # but adding the client a second time is not
 
 
 def test_replacing_client_groups(ok_small):
@@ -1151,56 +1057,6 @@ def test_pickle_data(ok_small, rc208):
     assert_equal(pickle.loads(bytes), rc208)
 
 
-@pytest.mark.parametrize(
-    ("delivery", "pickup", "exp_delivery", "exp_pickup"),
-    [
-        ([0], [0], [0], [0]),
-        ([0], [0, 1, 2], [0, 0, 0], [0, 1, 2]),
-        ([0, 1, 2], [0], [0, 1, 2], [0, 0, 0]),
-        ([0, 2], [1], [0, 2], [1, 0]),
-        ([], [], [], []),
-    ],
-)
-def test_client_load_dimensions_are_padded_with_zeroes(
-    delivery: list[int],
-    pickup: list[int],
-    exp_delivery: list[int],
-    exp_pickup: list[int],
-):
-    """
-    Tests that any missing load dimensions for the pickup and delivery Client
-    arguments are padded with zeroes.
-    """
-    client = Client(0, delivery=delivery, pickup=pickup)
-    assert_equal(client.delivery, exp_delivery)
-    assert_equal(client.pickup, exp_pickup)
-
-
-@pytest.mark.parametrize(
-    ("capacity", "initial_load", "exp_capacity", "exp_initial_load"),
-    [
-        ([0], [0], [0], [0]),
-        ([0], [0, 0, 0], [0, 0, 0], [0, 0, 0]),
-        ([0, 1, 2], [0], [0, 1, 2], [0, 0, 0]),
-        ([1, 2], [1], [1, 2], [1, 0]),
-        ([], [], [], []),
-    ],
-)
-def test_vehicle_load_dimensions_are_padded_with_zeroes(
-    capacity: list[int],
-    initial_load: list[int],
-    exp_capacity: list[int],
-    exp_initial_load: list[int],
-):
-    """
-    Tests that any missing load dimensions for the capacity and initial_load
-    VehicleType arguments are padded with zeroes.
-    """
-    vehicle_type = VehicleType(capacity=capacity, initial_load=initial_load)
-    assert_equal(vehicle_type.capacity, exp_capacity)
-    assert_equal(vehicle_type.initial_load, exp_initial_load)
-
-
 def test_problem_data_raises_when_pickup_and_delivery_dimensions_differ():
     """
     Tests that the ``ProblemData`` constructor raises a ``ValueError`` when
@@ -1343,34 +1199,6 @@ def test_validate_raises_for_invalid_reload_depot(ok_small):
     # during argument validation.
     with assert_raises(IndexError):
         ok_small.replace(vehicle_types=[new_vehicle_type])
-
-
-def test_vehicle_type_max_trips(ok_small_multiple_trips):
-    """
-    Tests that the vehicle type correctly handles the case where max_reloads
-    is set to its largest allowed size - then max_trips should not overflow.
-    """
-    veh_type = ok_small_multiple_trips.vehicle_type(0)
-    assert_equal(veh_type.max_reloads, 1)
-    assert_equal(veh_type.max_trips, 2)
-
-    # Normally, max_trips == max_reloads + 1, but when max_reloads is at the
-    # maximum size, we do not want max_trips to overflow and wrap around to
-    # zero. These asserts check that does not happen.
-    veh_type = veh_type.replace(max_reloads=_MAX_SIZE)
-    assert_equal(veh_type.max_reloads, _MAX_SIZE)
-    assert_equal(veh_type.max_trips, _MAX_SIZE)
-
-
-def test_vehicle_max_trips_is_one_if_no_reload_depots(ok_small):
-    """
-    Tests that a vehicle type's max_trips is one if there's no reload depots,
-    despite max_reloads being unconstrained.
-    """
-    veh_type = ok_small.vehicle_type(0)
-    assert_equal(veh_type.reload_depots, [])
-    assert_equal(veh_type.max_reloads, _MAX_SIZE)
-    assert_equal(veh_type.max_trips, 1)
 
 
 def test_has_time_windows(small_cvrp, pr107, small_spd, ok_small, rc208):

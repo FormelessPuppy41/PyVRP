@@ -1,15 +1,17 @@
 #ifndef PYVRP_PROBLEMDATA_H
 #define PYVRP_PROBLEMDATA_H
 
+#include "Client.h"
+#include "ClientGroup.h"
+#include "Depot.h"
+#include "Location.h"
 #include "Matrix.h"
 #include "Measure.h"
 #include "PiecewiseLinearFunction.h"
+#include "VehicleType.h"
+
 
 #include <cassert>
-#include <iosfwd>
-#include <limits>
-#include <optional>
-#include <string>
 #include <vector>
 
 namespace pyvrp
@@ -23,6 +25,7 @@ namespace pyvrp
  *     distance_matrices: list[numpy.ndarray[int]],
  *     duration_matrices: list[numpy.ndarray[int]],
  *     groups: list[ClientGroup] = [],
+ *     edge_demand_matrices: list[list[numpy.ndarray[int]]] = [],
  * )
  *
  * Creates a problem data instance. This instance contains all information
@@ -53,6 +56,16 @@ namespace pyvrp
  *     List of client groups. Client groups have certain restrictions - see the
  *     definition for details. By default there are no groups, and empty groups
  *     must not be passed.
+ * edge_demand_matrices
+ *     Optional edge demand matrices, indexed by routing profile and load
+ *     dimension. Entry ``[profile][dimension](i, j)`` denotes non-negative
+ *     demand consumed when traversing arc ``i -> j``. Diagonals must be zero.
+ *
+ * .. note::
+ *
+ *    Edge demands model monotone resource consumption over a route. When routes
+ *    include reload depots, reloads reset pickup/delivery load semantics, but
+ *    do not reset edge-demand consumption.
  *
  * Raises
  * ------
@@ -602,6 +615,7 @@ public:
 private:
     std::vector<Matrix<Distance>> const dists_;    // Distance matrices
     std::vector<Matrix<Duration>> const durs_;     // Duration matrices
+    std::vector<std::vector<Matrix<Load>>> const edgeDemands_;
     std::vector<Location> const locations_;        // Location information
     std::vector<Client> const clients_;            // Client information
     std::vector<Depot> const depots_;              // Depot information
@@ -611,6 +625,10 @@ private:
     size_t const numVehicles_;
     size_t const numLoadDimensions_;
     bool const hasTimeWindows_;
+    bool const hasEdgeDemands_;
+
+    // Validates the consistency of the constructed instance.
+    void validate() const;
 
 public:
     bool operator==(ProblemData const &other) const = default;
@@ -661,6 +679,16 @@ public:
      *    way!
      */
     [[nodiscard]] std::vector<Matrix<Duration>> const &durationMatrices() const;
+
+    /**
+     * Returns all profile-specific edge demand matrices in the problem
+     * instance, if any.
+     *
+     * The first index corresponds to routing profile, the second to load
+     * dimension.
+     */
+    [[nodiscard]] std::vector<std::vector<Matrix<Load>>> const &
+    edgeDemandMatrices() const;
 
     /**
      * Returns the location at the given index.
@@ -749,11 +777,23 @@ public:
     durationMatrix(size_t profile) const;
 
     /**
+     * Returns edge demand matrix data for the given routing profile and load
+     * dimension.
+     */
+    [[nodiscard]] inline Matrix<Load> const &
+    edgeDemandMatrix(size_t profile, size_t dimension) const;
+
+    /**
      * Determines whether any of the :meth:`~clients` or :meth:`~depots` in this
      * instance have nonstandard time windows, or if any :meth:`~vehicle_types`
      * have nonstandard shift time windows or latest start constraints.
      */
     [[nodiscard]] inline bool hasTimeWindows() const;
+
+    /**
+     * Determines whether edge demand matrices are provided.
+     */
+    [[nodiscard]] inline bool hasEdgeDemands() const;
 
     /**
      * Number of clients in this problem instance.
@@ -827,7 +867,9 @@ public:
                         std::optional<std::vector<VehicleType>> &vehicleTypes,
                         std::optional<std::vector<Matrix<Distance>>> &distMats,
                         std::optional<std::vector<Matrix<Duration>>> &durMats,
-                        std::optional<std::vector<ClientGroup>> &groups) const;
+                        std::optional<std::vector<ClientGroup>> &groups,
+                        std::optional<std::vector<std::vector<Matrix<Load>>>>
+                            &edgeDemandMats) const;
 
     ProblemData(std::vector<Location> locations,
                 std::vector<Client> clients,
@@ -835,18 +877,19 @@ public:
                 std::vector<VehicleType> vehicleTypes,
                 std::vector<Matrix<Distance>> distMats,
                 std::vector<Matrix<Duration>> durMats,
-                std::vector<ClientGroup> groups = {});
+                std::vector<ClientGroup> groups = {},
+                std::vector<std::vector<Matrix<Load>>> edgeDemandMats = {});
 
     ProblemData() = delete;
 };
 
-ProblemData::Client const &ProblemData::client(size_t client) const
+Client const &ProblemData::client(size_t client) const
 {
     assert(client < numClients());
     return clients_[client];
 }
 
-ProblemData::Depot const &ProblemData::depot(size_t depot) const
+Depot const &ProblemData::depot(size_t depot) const
 {
     assert(depot < numDepots());
     return depots_[depot];
@@ -864,7 +907,17 @@ Matrix<Duration> const &ProblemData::durationMatrix(size_t profile) const
     return durs_[profile];
 }
 
+Matrix<Load> const &ProblemData::edgeDemandMatrix(size_t profile,
+                                                  size_t dimension) const
+{
+    assert(profile < edgeDemands_.size());
+    assert(dimension < edgeDemands_[profile].size());
+    return edgeDemands_[profile][dimension];
+}
+
 bool ProblemData::hasTimeWindows() const { return hasTimeWindows_; }
+
+bool ProblemData::hasEdgeDemands() const { return hasEdgeDemands_; }
 }  // namespace pyvrp
 
 #endif  // PYVRP_PROBLEMDATA_H

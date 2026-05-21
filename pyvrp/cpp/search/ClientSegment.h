@@ -6,6 +6,8 @@
 #include "LoadSegment.h"
 #include "ProblemData.h"
 
+#include <vector>
+
 namespace pyvrp::search
 {
 /**
@@ -14,7 +16,7 @@ namespace pyvrp::search
  */
 class ClientSegment
 {
-    ProblemData::Client const &client_;
+    Client const &client_;
     size_t const idx_;
 
 public:
@@ -36,6 +38,7 @@ public:
     }
 
     size_t size() const { return 1; }
+    size_t numClients() const { return 1; }
 
     bool startsAtReloadDepot() const { return false; }
     bool endsAtReloadDepot() const { return false; }
@@ -54,6 +57,8 @@ public:
     {
         return {client_, dimension};
     }
+
+    std::vector<SegmentProxy> activities() const { return {front()}; }
 };
 }  // namespace pyvrp::search
 
